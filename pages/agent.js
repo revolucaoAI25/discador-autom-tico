@@ -7,18 +7,20 @@ import OutcomeForm from '../components/OutcomeForm';
 const Softphone = dynamic(() => import('../components/Softphone'), { ssr: false });
 
 export default function Agent() {
-  const [contact, setContact]   = useState(null);
-  const [callId, setCallId]     = useState(null);
+  const [contact, setContact]       = useState(null);
+  const [callId, setCallId]         = useState(null);
   const [callActive, setCallActive] = useState(false);
-  const [elapsed, setElapsed]   = useState(0);
-  const [dialing, setDialing]   = useState(false);
-  const [error, setError]       = useState('');
-  const [queue, setQueue]       = useState(0);
+  const [elapsed, setElapsed]       = useState(0);
+  const [dialing, setDialing]       = useState(false);
+  const [error, setError]           = useState('');
+  const [queue, setQueue]           = useState(0);
   const timerRef = useRef(null);
 
-  useEffect(() => {
+  function refreshQueue() {
     fetch('/api/contacts?status=pending').then((r) => r.json()).then((d) => setQueue(d.contacts.length));
-  }, []);
+  }
+
+  useEffect(() => { refreshQueue(); }, []);
 
   useEffect(() => {
     if (callActive) {
@@ -30,16 +32,18 @@ export default function Agent() {
   }, [callActive]);
 
   function fmt(s) {
-    const m = Math.floor(s / 60).toString().padStart(2, '0');
-    const sec = (s % 60).toString().padStart(2, '0');
-    return `${m}:${sec}`;
+    return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
   }
 
   async function handleDial() {
     setError('');
     setDialing(true);
     try {
-      const res = await fetch('/api/calls/dial', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const res = await fetch('/api/calls/dial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
       const data = await res.json();
       if (data.error) { setError(data.error); return; }
       setContact(data.contact);
@@ -56,48 +60,65 @@ export default function Agent() {
     setCallId(null);
     setCallActive(false);
     setElapsed(0);
-    fetch('/api/contacts?status=pending').then((r) => r.json()).then((d) => setQueue(d.contacts.length));
+    refreshQueue();
   }
 
   return (
     <>
-      <Head><title>Discador — Agente</title></Head>
+      <Head><title>Agente — Discador Pro</title></Head>
       <Nav />
-      <div className="container" style={{ maxWidth: 560 }}>
+      <div className="container" style={{ maxWidth: 520 }}>
         <div className="card">
           {callActive && contact ? (
             <>
-              <div style={{ background: '#0f172a', borderRadius: 8, padding: '16px 20px', marginBottom: 20 }}>
-                <div style={{ fontSize: 13, color: '#64748b', marginBottom: 4 }}>CHAMADA ATIVA — {fmt(elapsed)}</div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{contact.name}</div>
-                <div style={{ color: '#94a3b8' }}>{contact.company}</div>
-                <div style={{ color: '#64748b', fontSize: 14, marginTop: 4 }}>{contact.phone}</div>
+              {/* Active call header */}
+              <div className="call-panel" style={{ marginBottom: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <div className="call-label">Chamada ativa</div>
+                    <div className="call-name">{contact.name}</div>
+                    <div className="call-company">{contact.company}</div>
+                    <div className="call-phone">{contact.phone}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="call-timer">{fmt(elapsed)}</div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                      <span className="softphone-status softphone-active">
+                        <span className="pulse-dot pulse-warning" />
+                        ao vivo
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <OutcomeForm callId={callId} contactId={contact.id} onSaved={handleOutcomeSaved} />
             </>
           ) : (
-            <div style={{ textAlign: 'center', padding: '32px 0' }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>📞</div>
-              <p style={{ color: '#94a3b8', marginBottom: 8 }}>{queue} contatos na fila</p>
+            <div className="idle-panel">
+              <div className="idle-icon">📞</div>
+              <div style={{ textAlign: 'center' }}>
+                <div className="idle-queue">
+                  <strong>{queue}</strong> contato{queue !== 1 ? 's' : ''} na fila
+                </div>
+              </div>
               <button
-                className="btn-primary"
-                style={{ padding: '14px 32px', fontSize: 16 }}
+                className="btn-primary btn-lg"
                 onClick={handleDial}
                 disabled={dialing || queue === 0}
+                style={{ width: '100%' }}
               >
-                {dialing ? 'Discando…' : 'Discar próximo'}
+                {dialing ? 'Discando…' : queue === 0 ? 'Fila vazia' : 'Discar próximo →'}
               </button>
-              {error && <p style={{ color: '#fca5a5', marginTop: 12, fontSize: 14 }}>{error}</p>}
+              {error && (
+                <p style={{ color: 'var(--danger)', fontSize: 13, textAlign: 'center' }}>{error}</p>
+              )}
             </div>
           )}
 
           <Softphone
             onCallConnected={() => setCallActive(true)}
-            onCallEnded={() => {
-              if (!contact) return;
-              setCallActive(false);
-            }}
+            onCallEnded={() => { if (contact) setCallActive(false); }}
           />
         </div>
       </div>

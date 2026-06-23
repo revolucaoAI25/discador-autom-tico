@@ -5,7 +5,10 @@ export default function Nav() {
   const { pathname } = useRouter();
   return (
     <nav className="nav">
-      <h1>📞 Discador</h1>
+      <div className="nav-brand">
+        <div className="nav-brand-icon">📞</div>
+        <span className="nav-brand-name">Discador Pro</span>
+      </div>
       <Link href="/" className={pathname === '/' ? 'active' : ''}>Dashboard</Link>
       <Link href="/contacts" className={pathname === '/contacts' ? 'active' : ''}>Contatos</Link>
       <Link href="/agent" className={pathname === '/agent' ? 'active' : ''}>Agente</Link>

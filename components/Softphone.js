@@ -6,11 +6,10 @@ export default function Softphone({ onCallConnected, onCallEnded }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    let Device;
     async function init() {
       try {
         const mod = await import('@twilio/voice-sdk');
-        Device = mod.Device;
+        const { Device } = mod;
 
         const res = await fetch('/api/token');
         const { token } = await res.json();
@@ -19,15 +18,12 @@ export default function Softphone({ onCallConnected, onCallEnded }) {
         deviceRef.current = device;
 
         device.on('registered', () => setStatus('ready'));
-        device.on('error', (err) => setError(err.message));
+        device.on('error', (err) => { setError(err.message); setStatus('error'); });
         device.on('incoming', (call) => {
           call.accept();
           setStatus('active');
           onCallConnected?.(call);
-          call.on('disconnect', () => {
-            setStatus('ready');
-            onCallEnded?.();
-          });
+          call.on('disconnect', () => { setStatus('ready'); onCallEnded?.(); });
         });
 
         await device.register();
@@ -40,13 +36,21 @@ export default function Softphone({ onCallConnected, onCallEnded }) {
     return () => deviceRef.current?.destroy();
   }, []);
 
+  const configs = {
+    loading: { cls: 'softphone-loading', dot: null,            label: 'Inicializando softphone…' },
+    ready:   { cls: 'softphone-ready',   dot: 'pulse-green',   label: 'Softphone pronto' },
+    active:  { cls: 'softphone-active',  dot: 'pulse-warning', label: 'Chamada ativa' },
+    error:   { cls: 'softphone-error',   dot: null,            label: `Erro: ${error}` },
+  };
+
+  const cfg = configs[status];
+
   return (
-    <div style={{ fontSize: 13, color: '#64748b', marginTop: 8 }}>
-      Softphone:{' '}
-      {status === 'loading' && <span>Inicializando…</span>}
-      {status === 'ready'   && <span style={{ color: '#86efac' }}>● Pronto</span>}
-      {status === 'active'  && <span style={{ color: '#fbbf24' }}>● Chamada ativa</span>}
-      {status === 'error'   && <span style={{ color: '#fca5a5' }}>● Erro: {error}</span>}
+    <div style={{ display: 'flex', justifyContent: 'center', marginTop: 20 }}>
+      <span className={`softphone-status ${cfg.cls}`}>
+        {cfg.dot && <span className={`pulse-dot ${cfg.dot}`} />}
+        {cfg.label}
+      </span>
     </div>
   );
 }
