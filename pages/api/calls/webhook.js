@@ -1,23 +1,19 @@
-import { getDb } from '../../../lib/db';
+import { supabase } from '../../../lib/supabase';
 
-export default function handler(req, res) {
+export const config = { api: { bodyParser: true } };
+
+export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   const { CallSid, CallStatus, CallDuration } = req.body;
 
-  if (CallSid) {
-    const db = getDb();
-    const call = db.prepare('SELECT * FROM calls WHERE twilio_sid = ?').get(CallSid);
-
-    if (call && CallStatus === 'completed' && CallDuration) {
-      db.prepare('UPDATE calls SET duration = ? WHERE twilio_sid = ?').run(
-        parseInt(CallDuration),
-        CallSid
-      );
-    }
+  if (CallSid && CallStatus === 'completed' && CallDuration) {
+    await supabase
+      .from('calls')
+      .update({ duration: parseInt(CallDuration) })
+      .eq('twilio_sid', CallSid);
   }
 
-  // Return TwiML to connect the call to the browser agent via the TwiML App
   res.setHeader('Content-Type', 'text/xml');
   res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>

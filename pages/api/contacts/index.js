@@ -1,49 +1,35 @@
-import { getDb } from '../../../lib/db';
-import { parse } from 'csv-parse/sync';
 import { formidable } from 'formidable';
+import { parse } from 'csv-parse/sync';
 import fs from 'fs';
+import { supabase } from '../../../lib/supabase';
 
 export const config = { api: { bodyParser: false } };
 
 export default function handler(req, res) {
-  if (req.method === 'GET') {
-    return handleGet(req, res);
-  }
-  if (req.method === 'POST') {
-    return handlePost(req, res);
-  }
+  if (req.method === 'GET') return handleGet(req, res);
+  if (req.method === 'POST') return handlePost(req, res);
   res.status(405).json({ error: 'Method not allowed' });
 }
 
-function handleGet(req, res) {
-  const db = getDb();
+async function handleGet(req, res) {
   const { status, search } = req.query;
 
-  let sql = 'SELECT * FROM contacts';
-  const params = [];
-  const conditions = [];
+  let query = supabase.from('contacts').select('*').order('created_at', { ascending: false });
 
-  if (status && status !== 'all') {
-    conditions.push('status = ?');
-    params.push(status);
-  }
+  if (status && status !== 'all') query = query.eq('status', status);
   if (search) {
-    conditions.push('(name LIKE ? OR phone LIKE ? OR company LIKE ?)');
-    const term = `%${search}%`;
-    params.push(term, term, term);
+    query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%,company.ilike.%${search}%`);
   }
 
-  if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
-  sql += ' ORDER BY created_at DESC';
-
-  const contacts = db.prepare(sql).all(...params);
-  res.json({ contacts });
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ contacts: data });
 }
 
-async function handlePost(req, res) {
+function handlePost(req, res) {
   const form = formidable({ keepExtensions: true });
 
-  form.parse(req, (err, fields, files) => {
+  form.parse(req, async (err, _fields, files) => {
     if (err) return res.status(400).json({ error: 'Upload failed' });
 
     const file = Array.isArray(files.file) ? files.file[0] : files.file;
@@ -51,34 +37,21 @@ async function handlePost(req, res) {
 
     try {
       const content = fs.readFileSync(file.filepath, 'utf-8');
-      const records = parse(content, {
-        columns: true,
-        skip_empty_lines: true,
-        trim: true,
-      });
+      const records = parse(content, { columns: true, skip_empty_lines: true, trim: true });
 
-      const db = getDb();
-      const insert = db.prepare(
-        'INSERT INTO contacts (name, phone, company) VALUES (?, ?, ?)'
-      );
+      const rows = records
+        .map((row) => ({
+          name:    (row.name    || row.nome    || row.Name    || '').trim(),
+          phone:   (row.phone   || row.telefone || row.Phone  || row.fone || '').trim(),
+          company: (row.company || row.empresa  || row.Company || '').trim(),
+        }))
+        .filter((r) => r.name && r.phone);
 
-      const insertMany = db.transaction((rows) => {
-        let count = 0;
-        for (const row of rows) {
-          const name = row.name || row.nome || row.Name || '';
-          const phone = row.phone || row.telefone || row.Phone || row.fone || '';
-          const company = row.company || row.empresa || row.Company || '';
-          if (name && phone) {
-            insert.run(name.trim(), phone.trim(), company.trim());
-            count++;
-          }
-        }
-        return count;
-      });
-
-      const count = insertMany(records);
+      const { data, error } = await supabase.from('contacts').insert(rows).select();
       fs.unlinkSync(file.filepath);
-      res.json({ inserted: count });
+
+      if (error) return res.status(400).json({ error: error.message });
+      res.json({ inserted: data.length });
     } catch (e) {
       res.status(400).json({ error: e.message });
     }

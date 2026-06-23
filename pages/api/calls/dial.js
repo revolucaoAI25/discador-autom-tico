@@ -1,18 +1,18 @@
-import { getDb } from '../../../lib/db';
+import { supabase } from '../../../lib/supabase';
 import { getClient } from '../../../lib/twilio';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const db = getDb();
-  const { contact_id } = req.body;
+  const { contact_id } = req.body || {};
 
-  // Get next pending contact if no specific ID
   let contact;
   if (contact_id) {
-    contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(contact_id);
+    const { data } = await supabase.from('contacts').select('*').eq('id', contact_id).single();
+    contact = data;
   } else {
-    contact = db.prepare("SELECT * FROM contacts WHERE status = 'pending' LIMIT 1").get();
+    const { data } = await supabase.from('contacts').select('*').eq('status', 'pending').limit(1).single();
+    contact = data;
   }
 
   if (!contact) return res.status(404).json({ error: 'No pending contacts' });
@@ -30,13 +30,15 @@ export default async function handler(req, res) {
       statusCallbackMethod: 'POST',
     });
 
-    const result = db.prepare(
-      'INSERT INTO calls (contact_id, twilio_sid) VALUES (?, ?)'
-    ).run(contact.id, call.sid);
+    const { data: callRow } = await supabase
+      .from('calls')
+      .insert({ contact_id: contact.id, twilio_sid: call.sid })
+      .select()
+      .single();
 
-    db.prepare("UPDATE contacts SET status = 'called' WHERE id = ?").run(contact.id);
+    await supabase.from('contacts').update({ status: 'called' }).eq('id', contact.id);
 
-    res.json({ call_id: result.lastInsertRowid, twilio_sid: call.sid, contact });
+    res.json({ call_id: callRow.id, twilio_sid: call.sid, contact });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
