@@ -1,8 +1,9 @@
 import { supabase } from '../../../lib/supabase';
 import { getClient } from '../../../lib/twilio';
 
-const MAX_PER_DAY   = 4;
-const MAX_DAYS      = 5;  // distinct days with no answer → hibernate
+const MAX_PER_DAY    = 4;
+const MAX_PER_HOUR   = 2;
+const MAX_DAYS       = 5;  // distinct days with no answer → hibernate
 const HIBERNATE_DAYS = 15;
 
 async function wakeUpHibernating() {
@@ -41,17 +42,26 @@ export default async function handler(req, res) {
     contact = data;
   } else {
     // Find next eligible contact in queue
-    const { data } = await supabase
+    const { data: candidates } = await supabase
       .from('contacts')
       .select('*')
       .in('status', ['pending', 'no_answer'])
       .is('hibernating_until', null)
       .lt('attempts_today', MAX_PER_DAY)
       .order('last_call_at', { ascending: true, nullsFirst: true })
-      .limit(1)
-      .single();
+      .limit(50);
 
-    contact = data;
+    if (candidates?.length) {
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      for (const c of candidates) {
+        const { count } = await supabase
+          .from('calls')
+          .select('id', { count: 'exact', head: true })
+          .eq('contact_id', c.id)
+          .gte('started_at', hourAgo);
+        if ((count || 0) < MAX_PER_HOUR) { contact = c; break; }
+      }
+    }
   }
 
   if (!contact) {
