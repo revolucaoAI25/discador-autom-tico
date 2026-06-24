@@ -2,7 +2,6 @@ import { supabase } from '../../../lib/supabase';
 import { getClient } from '../../../lib/twilio';
 
 const MAX_PER_DAY   = 4;
-const MIN_GAP_MIN   = 30; // minutes between calls to same contact (2/hour)
 const MAX_DAYS      = 5;  // distinct days with no answer → hibernate
 const HIBERNATE_DAYS = 15;
 
@@ -42,16 +41,12 @@ export default async function handler(req, res) {
     contact = data;
   } else {
     // Find next eligible contact in queue
-    const gapCutoff = new Date(Date.now() - MIN_GAP_MIN * 60 * 1000).toISOString();
-    const today     = new Date().toISOString().slice(0, 10);
-
     const { data } = await supabase
       .from('contacts')
       .select('*')
       .in('status', ['pending', 'no_answer'])
       .is('hibernating_until', null)
       .lt('attempts_today', MAX_PER_DAY)
-      .or(`last_call_at.is.null,last_call_at.lt.${gapCutoff}`)
       .order('last_call_at', { ascending: true, nullsFirst: true })
       .limit(1)
       .single();
