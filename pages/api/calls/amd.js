@@ -1,54 +1,50 @@
 import { supabase } from '../../../lib/supabase';
 import { getClient } from '../../../lib/twilio';
 
-// Machine types Twilio can return
-const MACHINE_TYPES = ['machine_start', 'machine_end_beep', 'machine_end_silence', 'machine_end_other', 'fax'];
+const MACHINE_TYPES  = ['machine_start','machine_end_beep','machine_end_silence','machine_end_other','fax'];
+const MAX_DAYS       = 5;
+const HIBERNATE_DAYS = 15;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   const { CallSid, AnsweredBy } = req.body;
-
-  res.status(200).end(); // respond immediately to Twilio
+  res.status(200).end();
 
   if (!CallSid || !MACHINE_TYPES.includes(AnsweredBy)) return;
 
-  // Find the call record
   const { data: call } = await supabase
-    .from('calls')
-    .select('id, contact_id')
-    .eq('twilio_sid', CallSid)
-    .single();
-
+    .from('calls').select('id, contact_id').eq('twilio_sid', CallSid).single();
   if (!call) return;
 
-  // Check if agent already saved an outcome (avoid duplicating)
   const { data: existing } = await supabase
-    .from('outcomes')
-    .select('id')
-    .eq('call_id', call.id)
-    .single();
-
+    .from('outcomes').select('id').eq('call_id', call.id).single();
   if (existing) return;
 
-  // Auto-save voicemail outcome
+  const { data: contact } = await supabase
+    .from('contacts').select('*').eq('id', call.contact_id).single();
+  if (!contact) return;
+
   await supabase.from('outcomes').insert({
     call_id: call.id,
     result: 'voicemail',
-    notes: `Detectado automaticamente: ${AnsweredBy}`,
-    next_action: '',
+    notes: `Auto-detectado: ${AnsweredBy}`,
   });
 
-  await supabase
-    .from('contacts')
-    .update({ status: 'no_answer' })
-    .eq('id', call.contact_id);
+  const today         = new Date().toISOString().slice(0, 10);
+  const newDistinct   = (contact.distinct_days || 0) + (contact.last_call_date !== today ? 1 : 0);
+  const shouldHibernate = newDistinct >= MAX_DAYS;
+  const hibernateUntil  = shouldHibernate
+    ? new Date(Date.now() + HIBERNATE_DAYS * 86400000).toISOString().slice(0, 10)
+    : null;
 
-  // Hang up the call so browser disconnects and auto-dial can proceed
+  await supabase.from('contacts').update({
+    status: shouldHibernate ? 'no_answer' : 'no_answer',
+    distinct_days: newDistinct,
+    hibernating_until: hibernateUntil,
+  }).eq('id', call.contact_id);
+
   try {
-    const client = getClient();
-    await client.calls(CallSid).update({ status: 'completed' });
-  } catch (_) {
-    // Call may have already ended
-  }
+    await getClient().calls(CallSid).update({ status: 'completed' });
+  } catch (_) {}
 }

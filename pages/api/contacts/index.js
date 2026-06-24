@@ -11,7 +11,6 @@ export default function handler(req, res) {
   res.status(405).json({ error: 'Method not allowed' });
 }
 
-// Normalize any Brazilian phone to E.164 (+5511999998888)
 function normalizePhone(raw) {
   if (!raw) return '';
   const digits = raw.replace(/\D/g, '');
@@ -21,22 +20,26 @@ function normalizePhone(raw) {
   return raw;
 }
 
-// Extract fields from a row, supporting both your export format and generic formats
 function extractRow(row) {
-  const name    = (row['Nome']     || row['name']     || row['Name']    || '').trim();
-  const phone1  = (row['Telefone'] || row['phone']    || row['Phone']   || row['telefone'] || row['fone'] || '').trim();
-  const phone2  = (row['Telefone 2'] || row['Telefone2'] || row['phone2'] || '').trim();
+  const g = (keys) => {
+    for (const k of keys) { const v = (row[k] || '').trim(); if (v) return v; }
+    return '';
+  };
 
-  // Company: prefer Nicho, fallback to Município/UF, then empresa/company column
-  const nicho   = (row['Nicho']    || '').trim();
-  const cidade  = (row['Município'] || row['Municipio'] || '').trim();
-  const uf      = (row['UF'] || '').trim();
-  const empresa = (row['company']  || row['empresa']  || row['Company'] || '').trim();
-
-  let company = nicho || empresa;
-  if (!company && (cidade || uf)) company = [cidade, uf].filter(Boolean).join('/');
-
-  return { name, phone1, phone2, company };
+  return {
+    name:    g(['Nome', 'name', 'Name']),
+    phone1:  g(['Telefone', 'phone', 'Phone', 'telefone', 'fone']),
+    phone2:  g(['Telefone 2', 'Telefone2', 'phone2']),
+    company: g(['Nicho', 'company', 'empresa', 'Company']),
+    email:   g(['E-mail', 'Email', 'email']),
+    address: g(['Endereço', 'Endereco', 'address']),
+    city:    g(['Município', 'Municipio', 'city', 'cidade']),
+    state:   g(['UF', 'state', 'estado']),
+    website: g(['Site', 'Website', 'website', 'site']),
+    cnpj:    g(['CNPJ', 'cnpj']),
+    // Fallback company from city/state if no niche
+    _cityState: [g(['Município', 'Municipio', 'city']), g(['UF', 'state'])].filter(Boolean).join('/'),
+  };
 }
 
 async function handleGet(req, res) {
@@ -69,20 +72,29 @@ function handlePost(req, res) {
 
       const rows = [];
       for (const record of records) {
-        const { name, phone1, phone2, company } = extractRow(record);
-        if (!name) continue;
+        const r = extractRow(record);
+        if (!r.name) continue;
 
-        const p1 = normalizePhone(phone1);
-        if (p1) rows.push({ name, phone: p1, company });
+        const base = {
+          company: r.company || r._cityState,
+          email:   r.email,
+          address: r.address,
+          city:    r.city,
+          state:   r.state,
+          website: r.website,
+          cnpj:    r.cnpj,
+        };
 
-        // Second phone becomes a separate entry in the queue
-        const p2 = normalizePhone(phone2);
-        if (p2 && p2 !== p1) rows.push({ name, phone: p2, company });
+        const p1 = normalizePhone(r.phone1);
+        if (p1) rows.push({ name: r.name, phone: p1, ...base });
+
+        const p2 = normalizePhone(r.phone2);
+        if (p2 && p2 !== p1) rows.push({ name: r.name, phone: p2, ...base });
       }
 
       if (rows.length === 0) {
         fs.unlinkSync(file.filepath);
-        return res.status(400).json({ error: 'Nenhum contato válido encontrado no CSV' });
+        return res.status(400).json({ error: 'Nenhum contato válido encontrado' });
       }
 
       const { data, error } = await supabase.from('contacts').insert(rows).select();
