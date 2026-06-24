@@ -11,6 +11,7 @@ export default function Nav() {
       </div>
       <Link href="/" className={pathname === '/' ? 'active' : ''}>Dashboard</Link>
       <Link href="/contacts" className={pathname === '/contacts' ? 'active' : ''}>Contatos</Link>
+      <Link href="/kanban" className={pathname === '/kanban' ? 'active' : ''}>Kanban</Link>
       <Link href="/agent" className={pathname === '/agent' ? 'active' : ''}>Agente</Link>
     </nav>
   );

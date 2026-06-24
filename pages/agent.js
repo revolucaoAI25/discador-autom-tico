@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import Head from 'next/head';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
 import OutcomeForm from '../components/OutcomeForm';
 
@@ -9,6 +10,7 @@ const Softphone = dynamic(() => import('../components/Softphone'), { ssr: false 
 const COUNTDOWN_SECONDS = 3;
 
 export default function Agent() {
+  const router = useRouter();
   const [contact, setContact]         = useState(null);
   const [callId, setCallId]           = useState(null);
   const [callActive, setCallActive]   = useState(false);
@@ -34,6 +36,16 @@ export default function Agent() {
 
   useEffect(() => { refreshQueue(); }, []);
 
+  // Auto-dial specific contact when coming from kanban (?contact=ID)
+  useEffect(() => {
+    if (!router.isReady) return;
+    const { contact: contactId } = router.query;
+    if (contactId) {
+      router.replace('/agent', undefined, { shallow: true });
+      triggerDial(contactId);
+    }
+  }, [router.isReady]);
+
   useEffect(() => {
     if (callActive) {
       timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000);
@@ -47,11 +59,12 @@ export default function Agent() {
     return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
   }
 
-  const triggerDial = useCallback(async () => {
+  const triggerDial = useCallback(async (contactId = null) => {
     setError('');
     setDialing(true);
     try {
-      const res  = await fetch('/api/calls/dial', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const body = contactId ? JSON.stringify({ contact_id: contactId }) : '{}';
+      const res  = await fetch('/api/calls/dial', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
       const data = await res.json();
       if (data.error) { setError(data.error); return; }
       setContact(data.contact);
