@@ -49,7 +49,7 @@ export default async function handler(req, res) {
       .is('hibernating_until', null)
       .lt('attempts_today', MAX_PER_DAY)
       .order('last_call_at', { ascending: true, nullsFirst: true })
-      .limit(50);
+      .limit(1000);
 
     if (candidates?.length) {
       const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
