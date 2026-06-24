@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-export default function Softphone({ onCallConnected, onCallEnded }) {
+export default function Softphone({ onCallRinging, onCallConnected, onCallEnded }) {
   const deviceRef = useRef(null);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState(null);
@@ -16,9 +16,13 @@ export default function Softphone({ onCallConnected, onCallEnded }) {
         device.on('registered', () => setStatus('ready'));
         device.on('error', (err) => { setError(err.message); setStatus('error'); });
         device.on('incoming', (call) => {
+          setStatus('ringing');
+          onCallRinging?.();
           call.accept();
-          setStatus('active');
-          onCallConnected?.(call);
+          call.on('accept', () => {
+            setStatus('active');
+            onCallConnected?.(call);
+          });
           call.on('disconnect', () => { setStatus('ready'); onCallEnded?.(); });
         });
         await device.register();
@@ -34,6 +38,7 @@ export default function Softphone({ onCallConnected, onCallEnded }) {
   const map = {
     loading: { dot: 'sp-dot-gray',  label: 'Inicializando softphone…' },
     ready:   { dot: 'sp-dot-green', label: 'Softphone conectado' },
+    ringing: { dot: 'sp-dot-amber', label: 'Chamando…' },
     active:  { dot: 'sp-dot-amber', label: 'Chamada ativa' },
     error:   { dot: 'sp-dot-red',   label: `Erro: ${error}` },
   };
