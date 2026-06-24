@@ -15,14 +15,14 @@ export default function Contacts() {
   const [filter, setFilter]       = useState('all');
   const [search, setSearch]       = useState('');
   const [uploading, setUploading] = useState(false);
-  const [uploadMsg, setUploadMsg] = useState(null); // { type: 'ok'|'err', text }
+  const [uploadMsg, setUploadMsg] = useState(null);
   const fileRef = useRef();
 
   function load() {
     const params = new URLSearchParams();
     if (filter !== 'all') params.set('status', filter);
     if (search) params.set('search', search);
-    fetch(`/api/contacts?${params}`).then((r) => r.json()).then((d) => setContacts(d.contacts));
+    fetch(`/api/contacts?${params}`).then((r) => r.json()).then((d) => setContacts(d.contacts || []));
   }
 
   useEffect(() => { load(); }, [filter, search]);
@@ -34,12 +34,12 @@ export default function Contacts() {
     setUploadMsg(null);
     const fd = new FormData();
     fd.append('file', file);
-    const res = await fetch('/api/contacts', { method: 'POST', body: fd });
+    const res  = await fetch('/api/contacts', { method: 'POST', body: fd });
     const data = await res.json();
     setUploading(false);
     setUploadMsg(data.error
-      ? { type: 'err', text: `Erro: ${data.error}` }
-      : { type: 'ok',  text: `${data.inserted} contato${data.inserted !== 1 ? 's' : ''} importado${data.inserted !== 1 ? 's' : ''}` }
+      ? { ok: false, text: data.error }
+      : { ok: true,  text: `${data.inserted} contato${data.inserted !== 1 ? 's' : ''} importado${data.inserted !== 1 ? 's' : ''}` }
     );
     fileRef.current.value = '';
     load();
@@ -51,6 +51,8 @@ export default function Contacts() {
     load();
   }
 
+  const filters = ['all', ...Object.keys(STATUS_LABELS)];
+
   return (
     <>
       <Head><title>Contatos — Discador Pro</title></Head>
@@ -60,8 +62,8 @@ export default function Contacts() {
           <h1 className="page-title">Contatos</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {uploadMsg && (
-              <span style={{ fontSize: 12, fontWeight: 600, color: uploadMsg.type === 'ok' ? 'var(--green)' : 'var(--danger)' }}>
-                {uploadMsg.text}
+              <span style={{ fontSize: 12, color: uploadMsg.ok ? 'var(--green)' : 'var(--red)' }}>
+                {uploadMsg.ok ? '✓' : '✕'} {uploadMsg.text}
               </span>
             )}
             <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleUpload} />
@@ -71,23 +73,23 @@ export default function Contacts() {
           </div>
         </div>
 
-        {/* Filters */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        {/* Filters row */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
           <input
-            style={{ maxWidth: 280 }}
+            style={{ maxWidth: 260 }}
             placeholder="Buscar nome, telefone, empresa…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <div style={{ display: 'flex', gap: 6 }}>
-            {['all', ...Object.keys(STATUS_LABELS)].map((s) => (
+          <div style={{ display: 'flex', gap: 4 }}>
+            {filters.map((f) => (
               <button
-                key={s}
-                className={filter === s ? 'btn-ghost active' : 'btn-ghost'}
-                style={{ padding: '7px 13px', fontSize: 12 }}
-                onClick={() => setFilter(s)}
+                key={f}
+                className={`btn-ghost${filter === f ? ' active' : ''}`}
+                style={{ padding: '6px 12px', fontSize: 12 }}
+                onClick={() => setFilter(f)}
               >
-                {s === 'all' ? 'Todos' : STATUS_LABELS[s]}
+                {f === 'all' ? 'Todos' : STATUS_LABELS[f]}
               </button>
             ))}
           </div>
@@ -97,32 +99,41 @@ export default function Contacts() {
           <table>
             <thead>
               <tr>
-                <th>#</th>
+                <th style={{ width: 36 }}>#</th>
                 <th>Nome</th>
                 <th>Empresa</th>
                 <th>Telefone</th>
                 <th>Status</th>
-                <th>Criado em</th>
-                <th></th>
+                <th>Criado</th>
+                <th style={{ width: 60 }}></th>
               </tr>
             </thead>
             <tbody>
               {contacts.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="empty-state">
-                    {search || filter !== 'all' ? 'Nenhum contato encontrado com esses filtros.' : 'Importe um CSV para começar.'}
+                    {search || filter !== 'all'
+                      ? 'Nenhum contato com esses filtros.'
+                      : 'Importe um CSV para começar.'}
                   </td>
                 </tr>
               ) : contacts.map((c, i) => (
                 <tr key={c.id}>
-                  <td style={{ color: 'var(--text-dim)', fontSize: 12 }}>{i + 1}</td>
-                  <td style={{ fontWeight: 600 }}>{c.name}</td>
-                  <td style={{ color: 'var(--text-muted)' }}>{c.company || '—'}</td>
-                  <td style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{c.phone}</td>
-                  <td><span className={`badge badge-${c.status}`}>{STATUS_LABELS[c.status] || c.status}</span></td>
-                  <td style={{ color: 'var(--text-dim)', fontSize: 12, whiteSpace: 'nowrap' }}>{new Date(c.created_at).toLocaleDateString('pt-BR')}</td>
+                  <td style={{ color: 'var(--text-3)', fontSize: 11 }}>{i + 1}</td>
+                  <td style={{ fontWeight: 500 }}>{c.name}</td>
+                  <td style={{ color: 'var(--text-2)' }}>{c.company || '—'}</td>
+                  <td style={{ color: 'var(--text-2)', fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{c.phone}</td>
                   <td>
-                    <button className="btn-danger" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => handleDelete(c.id)}>
+                    <span className={`badge badge-${c.status}`}>
+                      <span className="badge-dot" />
+                      {STATUS_LABELS[c.status] || c.status}
+                    </span>
+                  </td>
+                  <td style={{ color: 'var(--text-3)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                    {new Date(c.created_at).toLocaleDateString('pt-BR')}
+                  </td>
+                  <td>
+                    <button className="btn-danger" style={{ padding: '3px 10px', fontSize: 11 }} onClick={() => handleDelete(c.id)}>
                       Remover
                     </button>
                   </td>
@@ -132,8 +143,8 @@ export default function Contacts() {
           </table>
         </div>
 
-        <div className="upload-hint" style={{ marginTop: 12 }}>
-          Colunas esperadas no CSV: <code>name</code>, <code>phone</code>, <code>company</code> — ou em PT‑BR: <code>nome</code>, <code>telefone</code>, <code>empresa</code>
+        <div className="upload-hint" style={{ marginTop: 10 }}>
+          Colunas aceitas: <code>Nome</code>, <code>Telefone</code>, <code>Telefone 2</code>, <code>Nicho</code>, <code>Município</code>, <code>UF</code> — ou <code>name</code>, <code>phone</code>, <code>company</code>
         </div>
       </div>
     </>

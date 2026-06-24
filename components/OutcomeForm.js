@@ -1,12 +1,26 @@
 import { useState } from 'react';
 
 const OUTCOMES = [
-  { value: 'interested',     label: '✓  Interessado',   cls: 'btn-success',  span: 2 },
-  { value: 'not_interested', label: '✕  Sem interesse', cls: 'btn-danger' },
-  { value: 'callback',       label: '↩  Callback',      cls: 'btn-warning' },
-  { value: 'no_answer',      label: '—  Não atendeu',   cls: 'btn-ghost' },
-  { value: 'voicemail',      label: '✉  Caixa postal',  cls: 'btn-ghost' },
+  { value: 'interested',     label: '✓  Interessado',   color: 'green' },
+  { value: 'not_interested', label: '✕  Sem interesse', color: 'red'   },
+  { value: 'callback',       label: '↩  Callback',      color: 'amber' },
+  { value: 'no_answer',      label: '—  Não atendeu',   color: 'gray'  },
+  { value: 'voicemail',      label: '✉  Caixa postal',  color: 'gray'  },
 ];
+
+const BASE_CLS = {
+  green: 'btn-ghost',
+  red:   'btn-ghost',
+  amber: 'btn-ghost',
+  gray:  'btn-ghost',
+};
+
+const SELECTED_CLS = {
+  green: 'selected-green',
+  red:   'selected-red',
+  amber: 'selected-amber',
+  gray:  'selected-gray',
+};
 
 export default function OutcomeForm({ callId, contactId, onSaved }) {
   const [selected, setSelected] = useState(null);
@@ -23,9 +37,7 @@ export default function OutcomeForm({ callId, contactId, onSaved }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ call_id: callId, contact_id: contactId, result: selected, notes, next_action: nextAction }),
       });
-      setSelected(null);
-      setNotes('');
-      setNextAction('');
+      setSelected(null); setNotes(''); setNextAction('');
       onSaved?.();
     } finally {
       setSaving(false);
@@ -33,40 +45,47 @@ export default function OutcomeForm({ callId, contactId, onSaved }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <p style={{ fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)' }}>
-        Resultado da chamada
-      </p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="outcome-section-label">Resultado</div>
 
-      {/* Interested gets full width */}
-      <button
-        className={`outcome-btn ${selected === 'interested' ? 'btn-success' : 'btn-ghost'}`}
-        onClick={() => setSelected('interested')}
-        style={{ width: '100%' }}
-      >
-        ✓&nbsp; Interessado
-      </button>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        {OUTCOMES.filter((o) => o.value !== 'interested').map((o) => (
+      {/* Interested — full width */}
+      {(() => {
+        const o = OUTCOMES[0];
+        const sel = selected === o.value;
+        return (
           <button
-            key={o.value}
-            className={`outcome-btn ${selected === o.value ? 'btn-primary' : o.cls}`}
+            className={`outcome-btn ${sel ? `outcome-btn ${SELECTED_CLS[o.color]}` : BASE_CLS[o.color]}`}
+            style={{ width: '100%' }}
             onClick={() => setSelected(o.value)}
           >
             {o.label}
           </button>
-        ))}
+        );
+      })()}
+
+      <div className="outcome-grid-2">
+        {OUTCOMES.slice(1).map((o) => {
+          const sel = selected === o.value;
+          return (
+            <button
+              key={o.value}
+              className={`outcome-btn ${sel ? `outcome-btn ${SELECTED_CLS[o.color]}` : BASE_CLS[o.color]}`}
+              onClick={() => setSelected(o.value)}
+            >
+              {o.label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="divider" />
 
       <textarea
         rows={2}
-        placeholder="Notas da chamada…"
+        placeholder="Notas…"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        style={{ resize: 'none' }}
+        style={{ resize: 'none', fontSize: 13 }}
       />
       <input
         placeholder="Próxima ação (opcional)"
@@ -78,7 +97,7 @@ export default function OutcomeForm({ callId, contactId, onSaved }) {
         className="btn-primary btn-lg"
         disabled={!selected || saving}
         onClick={handleSave}
-        style={{ width: '100%', marginTop: 4 }}
+        style={{ width: '100%', marginTop: 2 }}
       >
         {saving ? 'Salvando…' : 'Salvar e próxima →'}
       </button>
