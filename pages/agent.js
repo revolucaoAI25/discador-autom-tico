@@ -184,7 +184,7 @@ export default function Agent() {
               </div>
               <button
                 className="btn-primary btn-lg"
-                onClick={triggerDial}
+                onClick={() => triggerDial()}
                 disabled={dialing || queue === 0}
                 style={{ width: '100%' }}
               >
