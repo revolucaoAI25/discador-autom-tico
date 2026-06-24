@@ -29,6 +29,13 @@ export default async function handler(req, res) {
     if (updates.status && !VALID_STATUSES.includes(updates.status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
+    if (updates.status === 'pending') {
+      updates.attempts_today    = 0;
+      updates.last_call_at      = null;
+      updates.last_call_date    = null;
+      updates.distinct_days     = 0;
+      updates.hibernating_until = null;
+    }
     const { error } = await supabase.from('contacts').update(updates).eq('id', id);
     if (error) return res.status(500).json({ error: error.message });
     return res.json({ ok: true });
