@@ -28,6 +28,9 @@ export default async function handler(req, res) {
       statusCallback: `${baseUrl}/api/calls/webhook`,
       statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
       statusCallbackMethod: 'POST',
+      machineDetection: 'Enable',
+      asyncAmdStatusCallback: `${baseUrl}/api/calls/amd`,
+      asyncAmdStatusCallbackMethod: 'POST',
     });
 
     const { data: callRow } = await supabase
