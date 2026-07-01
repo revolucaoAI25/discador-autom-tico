@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Nav from '../components/Nav';
+import WhatsAppButton from '../components/WhatsAppButton';
 
 const COLUMNS = [
   { key: 'pending',        label: 'Pendente',        color: '#555',    bg: 'rgba(85,85,85,0.07)'      },
@@ -91,8 +92,13 @@ function LeadModal({ contact, onClose, onUpdate }) {
               style={{ background: 'none', border: 'none', color: 'var(--text-3)', fontSize: 18, cursor: 'pointer', lineHeight: 1 }}
             >×</button>
           </div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-1)', letterSpacing: '-0.3px' }}>{contact.name}</div>
-          {contact.company && <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 3 }}>{contact.company}</div>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-1)', letterSpacing: '-0.3px' }}>{contact.name}</div>
+              {contact.company && <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 3 }}>{contact.company}</div>}
+            </div>
+            <WhatsAppButton contactId={contact.id} size="lg" />
+          </div>
         </div>
 
         {/* Info fields */}
@@ -171,18 +177,21 @@ function Card({ contact, onDragStart, onStatusChange, onCall, onClick }) {
       {/* Name row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6, marginBottom: 4 }}>
         <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-1)', lineHeight: 1.3 }}>{contact.name}</div>
-        <button
-          onClick={(e) => { e.stopPropagation(); onCall(contact); }}
-          style={{
-            background: 'transparent', border: '1px solid var(--border)', borderRadius: 5,
-            color: 'var(--text-3)', fontSize: 11, padding: '2px 7px', cursor: 'pointer',
-            fontFamily: 'inherit', flexShrink: 0, transition: 'all 0.12s',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--green)'; e.currentTarget.style.color = '#000'; e.currentTarget.style.borderColor = 'var(--green)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-3)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
-        >
-          📞
-        </button>
+        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+          <WhatsAppButton contactId={contact.id} size="sm" />
+          <button
+            onClick={(e) => { e.stopPropagation(); onCall(contact); }}
+            style={{
+              background: 'transparent', border: '1px solid var(--border)', borderRadius: 5,
+              color: 'var(--text-3)', fontSize: 11, padding: '2px 7px', cursor: 'pointer',
+              fontFamily: 'inherit', flexShrink: 0, transition: 'all 0.12s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--green)'; e.currentTarget.style.color = '#000'; e.currentTarget.style.borderColor = 'var(--green)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-3)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+          >
+            📞
+          </button>
+        </div>
       </div>
 
       {contact.company && (

@@ -13,6 +13,7 @@ export default function Nav() {
       <Link href="/contacts" className={pathname === '/contacts' ? 'active' : ''}>Contatos</Link>
       <Link href="/kanban" className={pathname === '/kanban' ? 'active' : ''}>Kanban</Link>
       <Link href="/agent" className={pathname === '/agent' ? 'active' : ''}>Agente</Link>
+      <Link href="/settings" className={pathname === '/settings' ? 'active' : ''}>Config</Link>
     </nav>
   );
 }
