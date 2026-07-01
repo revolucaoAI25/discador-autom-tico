@@ -1,9 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 
-export default function Softphone({ onCallRinging, onCallConnected, onCallEnded }) {
-  const deviceRef = useRef(null);
+export default function Softphone({ controlRef, onCallRinging, onCallConnected, onCallEnded }) {
+  const deviceRef   = useRef(null);
+  const callRef     = useRef(null);
+  const acceptedRef = useRef(false);
   const [status, setStatus] = useState('loading');
-  const [error, setError] = useState(null);
+  const [error, setError]   = useState(null);
+
+  // Expose hangup to parent via controlRef
+  useEffect(() => {
+    if (controlRef) {
+      controlRef.current = {
+        hangup: () => callRef.current?.disconnect(),
+      };
+    }
+  }, [controlRef]);
 
   useEffect(() => {
     async function init() {
@@ -16,14 +27,25 @@ export default function Softphone({ onCallRinging, onCallConnected, onCallEnded 
         device.on('registered', () => setStatus('ready'));
         device.on('error', (err) => { setError(err.message); setStatus('error'); });
         device.on('incoming', (call) => {
+          callRef.current     = call;
+          acceptedRef.current = false;
           setStatus('ringing');
           onCallRinging?.();
           call.accept();
           call.on('accept', () => {
+            acceptedRef.current = true;
             setStatus('active');
             onCallConnected?.(call);
           });
-          call.on('disconnect', () => { setStatus('ready'); onCallEnded?.(); });
+          const finish = (wasAnswered) => {
+            acceptedRef.current = false;
+            callRef.current     = null;
+            setStatus('ready');
+            onCallEnded?.(wasAnswered);
+          };
+          call.on('disconnect', () => finish(acceptedRef.current));
+          call.on('cancel',     () => finish(false));
+          call.on('reject',     () => finish(false));
         });
         await device.register();
       } catch (e) {

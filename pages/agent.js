@@ -36,6 +36,7 @@ export default function Agent() {
   const countdownRef   = useRef(null);
   const outcomeSaved   = useRef(false);
   const autoEnabledRef = useRef(true);
+  const softphoneRef   = useRef(null);
 
   useEffect(() => { autoEnabledRef.current = autoEnabled; }, [autoEnabled]);
 
@@ -148,19 +149,25 @@ export default function Agent() {
     if (autoEnabledRef.current) startCountdown();
   }
 
-  function handleCallEnded() {
+  function handleCallEnded(wasAnswered) {
     if (outcomeSaved.current) { resetCallState(); return; }
-    // Auto-save as 'answered' so it doesn't stay pending
     if (contact && callId) {
-      fetch('/api/outcomes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ call_id: callId, contact_id: contact.id, result: 'answered', notes: '' }),
-      });
+      // Only auto-save if it was actually answered; if not answered, AMD already handles it
+      if (wasAnswered) {
+        fetch('/api/outcomes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ call_id: callId, contact_id: contact.id, result: 'answered', notes: '' }),
+        });
+        archiveToPrev();
+      }
     }
-    archiveToPrev();
     resetCallState();
     if (autoEnabledRef.current) startCountdown();
+  }
+
+  function handleHangup() {
+    softphoneRef.current?.hangup();
   }
 
   function handleCallRinging() {
@@ -233,8 +240,23 @@ export default function Agent() {
                     <div className="call-company">{contact.company}</div>
                     <div className="call-phone">{contact.phone}</div>
                   </div>
-                  <div className="call-timer">
-                    {callRinging ? fmt(ringElapsed) : fmt(elapsed)}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                    <div className="call-timer">
+                      {callRinging ? fmt(ringElapsed) : fmt(elapsed)}
+                    </div>
+                    <button
+                      onClick={handleHangup}
+                      style={{
+                        background: 'rgba(229,62,62,0.12)', border: '1px solid rgba(229,62,62,0.3)',
+                        borderRadius: 6, color: 'var(--red)', fontSize: 12, fontWeight: 600,
+                        padding: '5px 12px', cursor: 'pointer', fontFamily: 'inherit',
+                        transition: 'all 0.12s',
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(229,62,62,0.25)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(229,62,62,0.12)'; }}
+                    >
+                      Desligar
+                    </button>
                   </div>
                 </div>
               </div>
@@ -277,6 +299,7 @@ export default function Agent() {
           )}
 
           <Softphone
+            controlRef={softphoneRef}
             onCallRinging={handleCallRinging}
             onCallConnected={handleCallConnected}
             onCallEnded={handleCallEnded}
