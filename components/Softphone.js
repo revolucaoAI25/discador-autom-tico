@@ -29,10 +29,13 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
       try {
         const { Device } = await import('@twilio/voice-sdk');
         const token = await fetchToken();
-        const device = new Device(token, { logLevel: 1, edge: 'sao-paulo' });
+        const device = new Device(token, { logLevel: 1 });
         deviceRef.current = device;
 
-        device.on('registered', () => setStatus('ready'));
+        device.on('registered', () => {
+          console.log('[softphone] Device registered, identity:', device.identity, 'edge:', device.edge);
+          setStatus('ready');
+        });
         device.on('error', (err) => { setError(err.message); setStatus('error'); });
 
         // Access tokens expire (default ~1h). Without this, the Device silently
