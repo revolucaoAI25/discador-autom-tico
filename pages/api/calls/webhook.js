@@ -13,11 +13,5 @@ export default async function handler(req, res) {
     await supabase.from('calls').update(update).eq('twilio_sid', CallSid);
   }
 
-  res.setHeader('Content-Type', 'text/xml');
-  res.send(`<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Dial answerOnBridge="true">
-    <Client>${process.env.TWILIO_CLIENT_IDENTITY || 'agent'}</Client>
-  </Dial>
-</Response>`);
+  res.status(200).end();
 }
