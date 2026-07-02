@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 
+async function fetchToken() {
+  const res = await fetch('/api/token');
+  const { token } = await res.json();
+  return token;
+}
+
 export default function Softphone({ controlRef, onCallRinging, onCallConnected, onCallEnded }) {
   const deviceRef   = useRef(null);
   const callRef     = useRef(null);
@@ -17,15 +23,36 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
   }, [controlRef]);
 
   useEffect(() => {
+    let destroyed = false;
+
     async function init() {
       try {
         const { Device } = await import('@twilio/voice-sdk');
-        const res = await fetch('/api/token');
-        const { token } = await res.json();
+        const token = await fetchToken();
         const device = new Device(token, { logLevel: 1, edge: 'sao-paulo' });
         deviceRef.current = device;
+
         device.on('registered', () => setStatus('ready'));
         device.on('error', (err) => { setError(err.message); setStatus('error'); });
+
+        // Access tokens expire (default ~1h). Without this, the Device silently
+        // stops being able to receive calls while the UI still shows "conectado".
+        device.on('tokenWillExpire', async () => {
+          try {
+            const freshToken = await fetchToken();
+            if (!destroyed) device.updateToken(freshToken);
+          } catch (e) {
+            setError('Falha ao renovar token — recarregue a página');
+            setStatus('error');
+          }
+        });
+
+        // If the WebSocket registration drops for any other reason, surface it
+        // instead of silently pretending everything's fine.
+        device.on('unregistered', () => {
+          if (!destroyed) setStatus('error');
+        });
+
         device.on('incoming', (call) => {
           callRef.current     = call;
           acceptedRef.current = false;
@@ -47,6 +74,7 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
           call.on('cancel',     () => finish(false));
           call.on('reject',     () => finish(false));
         });
+
         await device.register();
       } catch (e) {
         setError(e.message);
@@ -54,7 +82,7 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
       }
     }
     init();
-    return () => deviceRef.current?.destroy();
+    return () => { destroyed = true; deviceRef.current?.destroy(); };
   }, []);
 
   const map = {
@@ -62,7 +90,7 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
     ready:   { dot: 'sp-dot-green', label: 'Softphone conectado' },
     ringing: { dot: 'sp-dot-amber', label: 'Chamando…' },
     active:  { dot: 'sp-dot-amber', label: 'Chamada ativa' },
-    error:   { dot: 'sp-dot-red',   label: `Erro: ${error}` },
+    error:   { dot: 'sp-dot-red',   label: error ? `Erro: ${error}` : 'Desconectado — recarregue a página' },
   };
 
   const cfg = map[status];
