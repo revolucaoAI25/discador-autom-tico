@@ -70,14 +70,31 @@ export default async function handler(req, res) {
     });
   }
 
-  try {
-    const client  = getClient();
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `https://${req.headers.host}`;
+  const client  = getClient();
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `https://${req.headers.host}`;
+  const room    = `room-${contact.id}-${Date.now()}`;
+  const identity = process.env.TWILIO_CLIENT_IDENTITY || 'agent';
 
-    const call = await client.calls.create({
+  let agentCall;
+  try {
+    // 1) Ring the agent's browser first and drop them into the conference room.
+    //    By the time the lead's phone actually answers, the agent's WebRTC leg
+    //    is already fully connected — the lead doesn't wait for that handshake.
+    agentCall = await client.calls.create({
+      to: `client:${identity}`,
+      from: process.env.TWILIO_FROM_NUMBER,
+      url: `${baseUrl}/api/calls/agent-leg?room=${encodeURIComponent(room)}`,
+    });
+  } catch (e) {
+    return res.status(500).json({ error: `Falha ao conectar seu softphone: ${e.message}` });
+  }
+
+  try {
+    // 2) Dial the lead into the same room, with AMD on this leg only.
+    const leadCall = await client.calls.create({
       to: contact.phone,
       from: process.env.TWILIO_FROM_NUMBER,
-      url: `${baseUrl}/api/calls/webhook`,
+      url: `${baseUrl}/api/calls/lead-leg?room=${encodeURIComponent(room)}`,
       statusCallback: `${baseUrl}/api/calls/webhook`,
       statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
       statusCallbackMethod: 'POST',
@@ -88,7 +105,7 @@ export default async function handler(req, res) {
 
     const { data: callRow } = await supabase
       .from('calls')
-      .insert({ contact_id: contact.id, twilio_sid: call.sid })
+      .insert({ contact_id: contact.id, twilio_sid: leadCall.sid, agent_call_sid: agentCall.sid })
       .select().single();
 
     const today = new Date().toISOString().slice(0, 10);
@@ -98,8 +115,9 @@ export default async function handler(req, res) {
       attempts_today: (contact.attempts_today || 0) + 1,
     }).eq('id', contact.id);
 
-    res.json({ call_id: callRow.id, twilio_sid: call.sid, contact });
+    res.json({ call_id: callRow.id, twilio_sid: leadCall.sid, contact });
   } catch (e) {
+    try { await client.calls(agentCall.sid).update({ status: 'completed' }); } catch (_) {}
     res.status(500).json({ error: e.message });
   }
 }

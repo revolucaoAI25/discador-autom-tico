@@ -15,17 +15,19 @@ const FAILED_STATUSES   = ['busy', 'no-answer', 'failed', 'canceled'];
 export default function Agent() {
   const router = useRouter();
 
-  // Current call
+  // Current call. The agent's browser leg joins a conference room immediately
+  // when dialing starts (in parallel with ringing the lead), so by the time the
+  // lead answers there's no WebRTC handshake left to wait for. "Atendeu" is
+  // therefore driven by the lead-leg's real Twilio status, not by browser events.
   const [contact, setContact]         = useState(null);
   const [callId, setCallId]           = useState(null);
-  // 'idle' | 'ringing' (dialing, lead hasn't picked up) | 'connecting' (lead picked up, bridging to agent) | 'active' (agent is on the line)
-  const [callPhase, setCallPhase]     = useState('idle');
+  const [callPhase, setCallPhase]     = useState('idle'); // 'idle' | 'ringing' | 'active'
   const [elapsed, setElapsed]         = useState(0);
   const [ringElapsed, setRingElapsed] = useState(0);
   const [dialing, setDialing]         = useState(false);
   const [error, setError]             = useState('');
 
-  // Previous call (shown below while next call is in progress)
+  // Previous call (shown beside the current one)
   const [prevContact, setPrevContact] = useState(null);
   const [prevCallId, setPrevCallId]   = useState(null);
   const [prevDismissed, setPrevDismissed] = useState(false);
@@ -35,14 +37,15 @@ export default function Agent() {
   const [autoEnabled, setAutoEnabled] = useState(true);
   const [countdown, setCountdown]     = useState(null);
 
-  const timerRef       = useRef(null);
-  const ringTimerRef   = useRef(null);
-  const pollRef        = useRef(null);
-  const countdownRef   = useRef(null);
-  const outcomeSaved   = useRef(false);
-  const autoEnabledRef = useRef(true);
-  const softphoneRef   = useRef(null);
-  const callPhaseRef   = useRef('idle');
+  const timerRef        = useRef(null);
+  const ringTimerRef    = useRef(null);
+  const pollRef         = useRef(null);
+  const countdownRef    = useRef(null);
+  const outcomeSaved    = useRef(false);
+  const leadAnsweredRef = useRef(false);
+  const autoEnabledRef  = useRef(true);
+  const softphoneRef    = useRef(null);
+  const callPhaseRef    = useRef('idle');
 
   useEffect(() => { autoEnabledRef.current = autoEnabled; }, [autoEnabled]);
   useEffect(() => { callPhaseRef.current = callPhase; }, [callPhase]);
@@ -76,10 +79,10 @@ export default function Agent() {
     return () => clearInterval(timerRef.current);
   }, [callPhase]);
 
-  // Ring/connecting timer
+  // Ring timer
   useEffect(() => {
-    if (callPhase === 'ringing' || callPhase === 'connecting') {
-      if (callPhase === 'ringing') setRingElapsed(0);
+    if (callPhase === 'ringing') {
+      setRingElapsed(0);
       ringTimerRef.current = setInterval(() => setRingElapsed((s) => s + 1), 1000);
     } else {
       clearInterval(ringTimerRef.current);
@@ -96,9 +99,9 @@ export default function Agent() {
     pollRef.current = null;
   }
 
-  // Poll the real Twilio call status until the lead answers or the call fails —
-  // the browser softphone only receives the call *after* the lead has already
-  // picked up, so this is the only way to detect "recusou" / "não atendeu" quickly.
+  // Poll the real Twilio status of the lead's leg until they answer or the call
+  // fails. The agent leg is already bridged into the conference well before this
+  // resolves, so 'in-progress' here is the true "lead picked up" signal.
   function startPolling(cId, contactId) {
     stopPolling();
     let ringSeconds = 0;
@@ -125,14 +128,21 @@ export default function Agent() {
         }
 
         if (d.status === 'in-progress' && callPhaseRef.current === 'ringing') {
-          setCallPhase('connecting');
-        } else if (FAILED_STATUSES.includes(d.status) && callPhaseRef.current !== 'active') {
           stopPolling();
-          endUnansweredCall(cId, contactId, false);
-        } else if (d.status === 'completed' && callPhaseRef.current !== 'active') {
-          // Ended before the agent leg ever bridged
-          stopPolling();
-          endUnansweredCall(cId, contactId, false);
+          leadAnsweredRef.current = true;
+          setCallPhase('active');
+          if (contactId) {
+            fetch(`/api/contacts/${contactId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'answered' }),
+            });
+          }
+        } else if (FAILED_STATUSES.includes(d.status) || d.status === 'completed') {
+          if (callPhaseRef.current !== 'active') {
+            stopPolling();
+            endUnansweredCall(cId, contactId, false);
+          }
         }
       } catch (_) {
         // transient network error — try again next tick
@@ -141,11 +151,10 @@ export default function Agent() {
   }
 
   // Call ended (declined, no answer, timed out, or already handled by AMD) without
-  // ever reaching the agent. `skipOutcome` = true when an outcome already exists
+  // the lead ever answering. `skipOutcome` = true when an outcome already exists
   // (e.g. AMD already saved 'voicemail') so we must not write a conflicting one.
   function endUnansweredCall(cId, contactId, skipOutcome) {
     if (outcomeSaved.current) return;
-    if (callPhaseRef.current === 'active') return;
     outcomeSaved.current = true;
     if (contactId && !skipOutcome) {
       fetch('/api/outcomes', {
@@ -154,6 +163,8 @@ export default function Agent() {
         body: JSON.stringify({ call_id: cId, contact_id: contactId, result: 'no_answer', notes: '' }),
       });
     }
+    // Make sure the agent's leg (parked in the conference) is torn down too.
+    if (cId) fetch(`/api/calls/${cId}/hangup`, { method: 'POST' });
     resetCallState();
     if (autoEnabledRef.current) startCountdown();
   }
@@ -170,7 +181,8 @@ export default function Agent() {
       setCallId(data.call_id);
       setElapsed(0);
       setCallPhase('ringing');
-      outcomeSaved.current = false;
+      outcomeSaved.current    = false;
+      leadAnsweredRef.current = false;
       startPolling(data.call_id, data.contact.id);
     } finally {
       setDialing(false);
@@ -212,7 +224,8 @@ export default function Agent() {
     setCallId(null);
     setCallPhase('idle');
     setElapsed(0);
-    outcomeSaved.current = false;
+    outcomeSaved.current    = false;
+    leadAnsweredRef.current = false;
     refreshQueue();
   }
 
@@ -225,9 +238,13 @@ export default function Agent() {
     if (autoEnabledRef.current) startCountdown();
   }
 
-  async function handleCallEnded(wasAnswered) {
+  // Fired when the browser softphone's call object disconnects — this now
+  // reflects the whole conference ending (either side hung up), not simply
+  // "the agent's leg was accepted" like it used to before the conference change.
+  async function handleCallEnded() {
     if (outcomeSaved.current) { resetCallState(); return; }
-    if (contact && callId && wasAnswered) {
+
+    if (contact && callId && leadAnsweredRef.current) {
       // AMD may have already recorded an outcome (e.g. voicemail) server-side
       // right before hanging up — check before overwriting it with 'answered'.
       let hasOutcome = false;
@@ -246,51 +263,33 @@ export default function Agent() {
         });
         archiveToPrev();
       }
+      resetCallState();
+      if (autoEnabledRef.current) startCountdown();
+      return;
     }
-    resetCallState();
-    if (autoEnabledRef.current) startCountdown();
+
+    // The lead never answered — treat like any other unanswered ending.
+    endUnansweredCall(callId, contact?.id, false);
   }
 
-  // Hangup must work in every phase. Before the lead answers, the browser
-  // softphone has no call object yet (only a REST call exists), so we always
-  // terminate via the Twilio REST API and, if the softphone does have an
-  // active call object, disconnect that too.
+  // Hangup must work in every phase. The lead-leg REST hangup also tears down
+  // the conference (and therefore the agent's leg) via endConferenceOnExit.
   async function handleHangup() {
     const cId = callId;
     const phaseAtClick = callPhaseRef.current;
     softphoneRef.current?.hangup();
-    if (cId) {
-      fetch(`/api/calls/${cId}/hangup`, { method: 'POST' });
-    }
-    if (phaseAtClick === 'ringing' || phaseAtClick === 'connecting') {
+    if (cId) fetch(`/api/calls/${cId}/hangup`, { method: 'POST' });
+
+    if (phaseAtClick === 'ringing') {
       stopPolling();
-      endUnansweredCall(cId, contact?.id);
+      endUnansweredCall(cId, contact?.id, false);
     }
     // If phase is 'active', the softphone's disconnect event drives handleCallEnded.
   }
 
-  function handleCallRinging() {
-    // Browser leg received — lead already answered on the PSTN side
-    setCallPhase('connecting');
-  }
-
-  function handleCallConnected() {
-    stopPolling();
-    setCallPhase('active');
-    // Mark contact as answered immediately when call is picked up
-    if (contact?.id) {
-      fetch(`/api/contacts/${contact.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'answered' }),
-      });
-    }
-  }
-
-  const callActive     = callPhase === 'active';
-  const callConnecting = callPhase === 'connecting';
-  const callRinging    = callPhase === 'ringing';
-  const hasCall         = callActive || callConnecting || callRinging;
+  const callActive  = callPhase === 'active';
+  const callRinging = callPhase === 'ringing';
+  const hasCall      = callActive || callRinging;
 
   return (
     <>
@@ -332,19 +331,12 @@ export default function Agent() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                      {callRinging && (
+                      {callRinging ? (
                         <>
                           <span className="ringing-dot" />
                           <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Chamando…</span>
                         </>
-                      )}
-                      {callConnecting && (
-                        <>
-                          <span className="ringing-dot" />
-                          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Conectando…</span>
-                        </>
-                      )}
-                      {callActive && (
+                      ) : (
                         <>
                           <span className="live-dot" />
                           <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--green)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Atendeu</span>
@@ -384,11 +376,6 @@ export default function Agent() {
                   Aguardando atendimento…
                 </div>
               )}
-              {callConnecting && (
-                <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 13, color: 'var(--text-3)' }}>
-                  Lead atendeu — conectando ao seu telefone…
-                </div>
-              )}
             </>
           ) : countdown !== null ? (
             <div className="idle-panel">
@@ -420,8 +407,6 @@ export default function Agent() {
 
           <Softphone
             controlRef={softphoneRef}
-            onCallRinging={handleCallRinging}
-            onCallConnected={handleCallConnected}
             onCallEnded={handleCallEnded}
           />
         </div>
