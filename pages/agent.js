@@ -278,8 +278,14 @@ export default function Agent() {
     <>
       <Head><title>Agente — Discador Pro</title></Head>
       <Nav />
-      <div className="container" style={{ maxWidth: 500 }}>
-        <div className="card">
+      <div
+        className="container"
+        style={{
+          maxWidth: prevContact && prevCallId && !prevDismissed ? 900 : 500,
+          display: 'flex', gap: 16, alignItems: 'flex-start',
+        }}
+      >
+        <div className="card" style={{ flex: '1 1 460px', minWidth: 0 }}>
 
           {/* Header bar */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -402,9 +408,9 @@ export default function Agent() {
           />
         </div>
 
-        {/* Previous call panel */}
+        {/* Previous call panel — shown beside the main call panel */}
         {prevContact && prevCallId && !prevDismissed && (
-          <div className="card" style={{ marginTop: 12, borderColor: 'var(--bg-3)', opacity: 0.92 }}>
+          <div className="card" style={{ flex: '1 1 380px', minWidth: 0, borderColor: 'var(--bg-3)', opacity: 0.92 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>
