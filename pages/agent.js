@@ -9,16 +9,17 @@ const Softphone = dynamic(() => import('../components/Softphone'), { ssr: false 
 
 const COUNTDOWN_SECONDS = 3;
 const POLL_MS           = 1000;
-const RING_TIMEOUT_S    = 40; // failsafe if Twilio never reports a terminal status
+const ACTIVE_POLL_MS    = 3000; // slower fallback poll once truly bridged
+const RING_TIMEOUT_S    = 40;   // failsafe if Twilio never reports a terminal status
 const FAILED_STATUSES   = ['busy', 'no-answer', 'failed', 'canceled'];
 
 export default function Agent() {
   const router = useRouter();
 
-  // Current call. The agent's browser leg joins a conference room immediately
-  // when dialing starts (in parallel with ringing the lead), so by the time the
-  // lead answers there's no WebRTC handshake left to wait for. "Atendeu" is
-  // therefore driven by the lead-leg's real Twilio status, not by browser events.
+  // Current call. The agent's browser leg joins a conference room in parallel
+  // with dialing the lead. "Atendeu" only fires once BOTH legs are confirmed
+  // bridged into the room — the lead answering alone is not enough proof, since
+  // the agent's own leg can fail independently (browser/Device not ready, etc.).
   const [contact, setContact]         = useState(null);
   const [callId, setCallId]           = useState(null);
   const [callPhase, setCallPhase]     = useState('idle'); // 'idle' | 'ringing' | 'active'
@@ -38,14 +39,14 @@ export default function Agent() {
   const [countdown, setCountdown]     = useState(null);
 
   const timerRef        = useRef(null);
-  const ringTimerRef    = useRef(null);
-  const pollRef         = useRef(null);
-  const countdownRef    = useRef(null);
-  const outcomeSaved    = useRef(false);
-  const leadAnsweredRef = useRef(false);
-  const autoEnabledRef  = useRef(true);
-  const softphoneRef    = useRef(null);
-  const callPhaseRef    = useRef('idle');
+  const ringTimerRef     = useRef(null);
+  const pollRef          = useRef(null);
+  const countdownRef     = useRef(null);
+  const outcomeSaved     = useRef(false);
+  const leadAnsweredRef  = useRef(false);
+  const autoEnabledRef   = useRef(true);
+  const softphoneRef     = useRef(null);
+  const callPhaseRef     = useRef('idle');
 
   useEffect(() => { autoEnabledRef.current = autoEnabled; }, [autoEnabled]);
   useEffect(() => { callPhaseRef.current = callPhase; }, [callPhase]);
@@ -99,9 +100,10 @@ export default function Agent() {
     pollRef.current = null;
   }
 
-  // Poll the real Twilio status of the lead's leg until they answer or the call
-  // fails. The agent leg is already bridged into the conference well before this
-  // resolves, so 'in-progress' here is the true "lead picked up" signal.
+  // Poll both legs' real Twilio status. The lead answering is NOT proof the
+  // call is usable — the agent's own leg can independently fail to bridge
+  // (browser/Device not ready in time), leaving the lead alone in the room
+  // hearing hold music. We only declare "Atendeu" once both sides confirm.
   function startPolling(cId, contactId) {
     stopPolling();
     let ringSeconds = 0;
@@ -119,35 +121,80 @@ export default function Agent() {
         const d = await r.json();
         if (!d.status) return;
 
+        if (callPhaseRef.current === 'active') {
+          // Fallback: if the Device's own disconnect event doesn't fire for
+          // some reason, this catches the lead hanging up anyway.
+          if (d.status !== 'in-progress') {
+            stopPolling();
+            finishActiveCall(cId, contactId);
+          }
+          return;
+        }
+
         // AMD (or anything else server-side) already recorded an outcome for
         // this call (e.g. voicemail detected) — don't fight it, just end locally.
-        if (d.hasOutcome && callPhaseRef.current !== 'active') {
+        if (d.hasOutcome) {
           stopPolling();
           endUnansweredCall(cId, contactId, true);
           return;
         }
 
-        if (d.status === 'in-progress' && callPhaseRef.current === 'ringing') {
-          stopPolling();
-          leadAnsweredRef.current = true;
-          setCallPhase('active');
-          if (contactId) {
-            fetch(`/api/contacts/${contactId}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ status: 'answered' }),
-            });
-          }
-        } else if (FAILED_STATUSES.includes(d.status) || d.status === 'completed') {
-          if (callPhaseRef.current !== 'active') {
+        if (d.status === 'in-progress') {
+          if (d.agentStatus === 'in-progress') {
+            // Both legs confirmed bridged — this is the real "Atendeu".
             stopPolling();
-            endUnansweredCall(cId, contactId, false);
+            leadAnsweredRef.current = true;
+            setCallPhase('active');
+            if (contactId) {
+              fetch(`/api/contacts/${contactId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'answered' }),
+              });
+            }
+            // Keep a slower poll running as a safety net in case Device events fail.
+            startActiveFallbackPolling(cId, contactId);
+          } else if (FAILED_STATUSES.includes(d.agentStatus)) {
+            // The lead answered, but our own browser leg never connected —
+            // a technical failure, not a "didn't answer". Don't penalize the
+            // contact for it.
+            stopPolling();
+            handleBridgeFailure(cId);
           }
+          // else: lead is in, waiting for the agent leg to resolve — keep polling
+        } else if (FAILED_STATUSES.includes(d.status) || d.status === 'completed') {
+          stopPolling();
+          endUnansweredCall(cId, contactId, false);
         }
       } catch (_) {
         // transient network error — try again next tick
       }
     }, POLL_MS);
+  }
+
+  function startActiveFallbackPolling(cId, contactId) {
+    stopPolling();
+    pollRef.current = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/calls/${cId}/status`);
+        const d = await r.json();
+        if (d.status && d.status !== 'in-progress') {
+          stopPolling();
+          finishActiveCall(cId, contactId);
+        }
+      } catch (_) {}
+    }, ACTIVE_POLL_MS);
+  }
+
+  // The lead answered but we failed to connect them to the agent — a system
+  // failure, not a real "no answer". Hang up cleanly and don't touch the
+  // contact's cooldown counters so it can be retried right away.
+  function handleBridgeFailure(cId) {
+    if (outcomeSaved.current) return;
+    outcomeSaved.current = true;
+    if (cId) fetch(`/api/calls/${cId}/hangup`, { method: 'POST' });
+    setError('Falha técnica ao conectar — o contato atendeu, mas não conseguimos ligar sua chamada. Tente novamente.');
+    resetCallState();
   }
 
   // Call ended (declined, no answer, timed out, or already handled by AMD) without
@@ -238,36 +285,41 @@ export default function Agent() {
     if (autoEnabledRef.current) startCountdown();
   }
 
-  // Fired when the browser softphone's call object disconnects — this now
-  // reflects the whole conference ending (either side hung up), not simply
-  // "the agent's leg was accepted" like it used to before the conference change.
-  async function handleCallEnded() {
+  // Shared "the call genuinely happened and just ended" path — used both by
+  // the softphone's own disconnect event and by the polling fallback in case
+  // that event doesn't fire.
+  async function finishActiveCall(cId, contactId) {
     if (outcomeSaved.current) { resetCallState(); return; }
 
-    if (contact && callId && leadAnsweredRef.current) {
-      // AMD may have already recorded an outcome (e.g. voicemail) server-side
-      // right before hanging up — check before overwriting it with 'answered'.
-      let hasOutcome = false;
-      try {
-        const r = await fetch(`/api/calls/${callId}/status`);
-        const d = await r.json();
-        hasOutcome = !!d.hasOutcome;
-      } catch (_) {}
+    // AMD may have already recorded an outcome (e.g. voicemail) server-side
+    // right before hanging up — check before overwriting it with 'answered'.
+    let hasOutcome = false;
+    try {
+      const r = await fetch(`/api/calls/${cId}/status`);
+      const d = await r.json();
+      hasOutcome = !!d.hasOutcome;
+    } catch (_) {}
 
-      if (!hasOutcome) {
-        outcomeSaved.current = true;
-        fetch('/api/outcomes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ call_id: callId, contact_id: contact.id, result: 'answered', notes: '' }),
-        });
-        archiveToPrev();
-      }
-      resetCallState();
-      if (autoEnabledRef.current) startCountdown();
+    if (!hasOutcome && cId && contactId) {
+      outcomeSaved.current = true;
+      fetch('/api/outcomes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ call_id: cId, contact_id: contactId, result: 'answered', notes: '' }),
+      });
+      archiveToPrev();
+    }
+    resetCallState();
+    if (autoEnabledRef.current) startCountdown();
+  }
+
+  // Fired when the browser softphone's call object disconnects.
+  function handleCallEnded() {
+    if (outcomeSaved.current) { resetCallState(); return; }
+    if (leadAnsweredRef.current) {
+      finishActiveCall(callId, contact?.id);
       return;
     }
-
     // The lead never answered — treat like any other unanswered ending.
     endUnansweredCall(callId, contact?.id, false);
   }
@@ -284,7 +336,8 @@ export default function Agent() {
       stopPolling();
       endUnansweredCall(cId, contact?.id, false);
     }
-    // If phase is 'active', the softphone's disconnect event drives handleCallEnded.
+    // If phase is 'active', the softphone's disconnect event (or the fallback
+    // poll) drives finishActiveCall.
   }
 
   const callActive  = callPhase === 'active';
