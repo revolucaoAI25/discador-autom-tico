@@ -6,5 +6,5 @@ export default function handler(req, res) {
   const { StatusCallbackEvent, FriendlyName, CallSid, ConferenceSid } = req.body;
   console.log(`[conference] event=${StatusCallbackEvent} room=${FriendlyName} conferenceSid=${ConferenceSid} callSid=${CallSid}`);
 
-  res.status(200).end();
+  res.status(204).end();
 }

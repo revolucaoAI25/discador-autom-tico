@@ -17,5 +17,5 @@ export default async function handler(req, res) {
     console.error('[agent-leg status] handler error:', e.message);
   }
 
-  res.status(200).end();
+  res.status(204).end();
 }

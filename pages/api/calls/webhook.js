@@ -18,5 +18,5 @@ export default async function handler(req, res) {
     console.error('[webhook] handler error:', e.message);
   }
 
-  res.status(200).end();
+  res.status(204).end();
 }
