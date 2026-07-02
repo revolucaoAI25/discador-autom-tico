@@ -6,14 +6,13 @@ export default async function handler(req, res) {
   const { id } = req.query;
 
   const { data: call } = await supabase
-    .from('calls').select('twilio_sid, agent_call_sid').eq('id', id).single();
-  if (!call) return res.status(404).json({ error: 'Not found' });
+    .from('calls').select('twilio_sid').eq('id', id).single();
+  if (!call?.twilio_sid) return res.status(404).json({ error: 'Not found' });
 
-  const client = getClient();
-  const sids = [call.twilio_sid, call.agent_call_sid].filter(Boolean);
-  await Promise.all(sids.map((sid) =>
-    client.calls(sid).update({ status: 'completed' }).catch(() => {})
-  ));
-
+  try {
+    await getClient().calls(call.twilio_sid).update({ status: 'completed' });
+  } catch (_) {
+    // Call may have already ended — not an error from the user's perspective
+  }
   res.json({ ok: true });
 }
