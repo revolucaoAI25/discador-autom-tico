@@ -107,7 +107,7 @@ export default function Agent() {
 
       if (ringSeconds >= RING_TIMEOUT_S && callPhaseRef.current === 'ringing') {
         stopPolling();
-        endUnansweredCall(cId, contactId);
+        endUnansweredCall(cId, contactId, false);
         return;
       }
 
@@ -116,15 +116,23 @@ export default function Agent() {
         const d = await r.json();
         if (!d.status) return;
 
+        // AMD (or anything else server-side) already recorded an outcome for
+        // this call (e.g. voicemail detected) — don't fight it, just end locally.
+        if (d.hasOutcome && callPhaseRef.current !== 'active') {
+          stopPolling();
+          endUnansweredCall(cId, contactId, true);
+          return;
+        }
+
         if (d.status === 'in-progress' && callPhaseRef.current === 'ringing') {
           setCallPhase('connecting');
         } else if (FAILED_STATUSES.includes(d.status) && callPhaseRef.current !== 'active') {
           stopPolling();
-          endUnansweredCall(cId, contactId);
+          endUnansweredCall(cId, contactId, false);
         } else if (d.status === 'completed' && callPhaseRef.current !== 'active') {
           // Ended before the agent leg ever bridged
           stopPolling();
-          endUnansweredCall(cId, contactId);
+          endUnansweredCall(cId, contactId, false);
         }
       } catch (_) {
         // transient network error — try again next tick
@@ -132,12 +140,14 @@ export default function Agent() {
     }, POLL_MS);
   }
 
-  // Call ended (declined, no answer, timed out) without ever reaching the agent
-  function endUnansweredCall(cId, contactId) {
+  // Call ended (declined, no answer, timed out, or already handled by AMD) without
+  // ever reaching the agent. `skipOutcome` = true when an outcome already exists
+  // (e.g. AMD already saved 'voicemail') so we must not write a conflicting one.
+  function endUnansweredCall(cId, contactId, skipOutcome) {
     if (outcomeSaved.current) return;
     if (callPhaseRef.current === 'active') return;
     outcomeSaved.current = true;
-    if (contactId) {
+    if (contactId && !skipOutcome) {
       fetch('/api/outcomes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -215,11 +225,19 @@ export default function Agent() {
     if (autoEnabledRef.current) startCountdown();
   }
 
-  function handleCallEnded(wasAnswered) {
+  async function handleCallEnded(wasAnswered) {
     if (outcomeSaved.current) { resetCallState(); return; }
-    if (contact && callId) {
-      // Only auto-save if it was actually answered; if not, polling already handled it
-      if (wasAnswered) {
+    if (contact && callId && wasAnswered) {
+      // AMD may have already recorded an outcome (e.g. voicemail) server-side
+      // right before hanging up — check before overwriting it with 'answered'.
+      let hasOutcome = false;
+      try {
+        const r = await fetch(`/api/calls/${callId}/status`);
+        const d = await r.json();
+        hasOutcome = !!d.hasOutcome;
+      } catch (_) {}
+
+      if (!hasOutcome) {
         outcomeSaved.current = true;
         fetch('/api/outcomes', {
           method: 'POST',

@@ -13,9 +13,12 @@ export default async function handler(req, res) {
     await supabase.from('calls').update(update).eq('twilio_sid', CallSid);
   }
 
+  // Brief filler while the browser softphone finishes its WebRTC handshake —
+  // masks the ~1-3s of dead air the lead would otherwise hear after answering.
   res.setHeader('Content-Type', 'text/xml');
   res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Say language="pt-BR" voice="Polly.Camila-Neural">Só um momento, por favor.</Say>
   <Dial answerOnBridge="true">
     <Client>${process.env.TWILIO_CLIENT_IDENTITY || 'agent'}</Client>
   </Dial>

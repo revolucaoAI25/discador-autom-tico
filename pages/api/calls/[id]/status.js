@@ -8,5 +8,8 @@ export default async function handler(req, res) {
     .from('calls').select('status').eq('id', id).single();
   if (error) return res.status(404).json({ error: 'Not found' });
 
-  res.json({ status: data.status });
+  const { data: outcome } = await supabase
+    .from('outcomes').select('id').eq('call_id', id).limit(1).maybeSingle();
+
+  res.json({ status: data.status, hasOutcome: !!outcome });
 }
