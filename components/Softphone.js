@@ -57,6 +57,7 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
         });
 
         device.on('incoming', (call) => {
+          console.log('[softphone] incoming call received! parameters:', call.parameters);
           callRef.current     = call;
           acceptedRef.current = false;
           setStatus('ringing');
