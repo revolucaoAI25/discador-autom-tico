@@ -60,8 +60,8 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
   const map = {
     loading: { dot: 'sp-dot-gray',  label: 'Inicializando softphone…' },
     ready:   { dot: 'sp-dot-green', label: 'Softphone conectado' },
-    ringing: { dot: 'sp-dot-amber', label: 'Conectando à sala…' },
-    active:  { dot: 'sp-dot-amber', label: 'Na sala — aguardando/em ligação' },
+    ringing: { dot: 'sp-dot-amber', label: 'Chamando…' },
+    active:  { dot: 'sp-dot-amber', label: 'Chamada ativa' },
     error:   { dot: 'sp-dot-red',   label: `Erro: ${error}` },
   };
 
