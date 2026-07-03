@@ -29,7 +29,7 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
       try {
         const { Device } = await import('@twilio/voice-sdk');
         const token = await fetchToken();
-        const device = new Device(token, { logLevel: 1 });
+        const device = new Device(token, { logLevel: 1, edge: 'sao-paulo' });
         deviceRef.current = device;
 
         device.on('registered', () => setStatus('ready'));
