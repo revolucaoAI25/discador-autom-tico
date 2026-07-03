@@ -73,7 +73,8 @@ export default async function handler(req, res) {
   const client  = getClient();
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `https://${req.headers.host}`;
   const room    = `room-${contact.id}-${Date.now()}`;
-  const identity = process.env.TWILIO_CLIENT_IDENTITY || 'agent';
+  // TEMP diagnostic: must match the identity in pages/api/token.js
+  const identity = 'agentdiag01';
 
   let agentCall;
   try {
