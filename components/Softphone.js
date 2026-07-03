@@ -32,10 +32,7 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
         const device = new Device(token, { logLevel: 1 });
         deviceRef.current = device;
 
-        device.on('registered', () => {
-          console.log('[softphone] Device registered, identity:', device.identity, 'edge:', device.edge);
-          setStatus('ready');
-        });
+        device.on('registered', () => setStatus('ready'));
         device.on('error', (err) => { setError(err.message); setStatus('error'); });
 
         // Access tokens expire (default ~1h). Without this, the Device silently
@@ -57,7 +54,6 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
         });
 
         device.on('incoming', (call) => {
-          console.log('[softphone] incoming call received! parameters:', call.parameters);
           callRef.current     = call;
           acceptedRef.current = false;
           setStatus('ringing');
@@ -92,8 +88,8 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
   const map = {
     loading: { dot: 'sp-dot-gray',  label: 'Inicializando softphone…' },
     ready:   { dot: 'sp-dot-green', label: 'Softphone conectado' },
-    ringing: { dot: 'sp-dot-amber', label: 'Conectando à sala…' },
-    active:  { dot: 'sp-dot-amber', label: 'Na sala — aguardando/em ligação' },
+    ringing: { dot: 'sp-dot-amber', label: 'Chamando…' },
+    active:  { dot: 'sp-dot-amber', label: 'Chamada ativa' },
     error:   { dot: 'sp-dot-red',   label: error ? `Erro: ${error}` : 'Desconectado — recarregue a página' },
   };
 
