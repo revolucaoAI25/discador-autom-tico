@@ -24,6 +24,7 @@ export default function Agent() {
   const [ringElapsed, setRingElapsed] = useState(0);
   const [dialing, setDialing]         = useState(false);
   const [error, setError]             = useState('');
+  const [banner, setBanner]           = useState(null); // { text, tone } — brief feedback on how the last call ended
 
   // Previous call (shown below while next call is in progress)
   const [prevContact, setPrevContact] = useState(null);
@@ -43,6 +44,13 @@ export default function Agent() {
   const autoEnabledRef = useRef(true);
   const softphoneRef   = useRef(null);
   const callPhaseRef   = useRef('idle');
+  const bannerTimeoutRef = useRef(null);
+
+  function showBanner(text, tone) {
+    clearTimeout(bannerTimeoutRef.current);
+    setBanner({ text, tone });
+    bannerTimeoutRef.current = setTimeout(() => setBanner(null), 5000);
+  }
 
   useEffect(() => { autoEnabledRef.current = autoEnabled; }, [autoEnabled]);
   useEffect(() => { callPhaseRef.current = callPhase; }, [callPhase]);
@@ -147,12 +155,17 @@ export default function Agent() {
     if (outcomeSaved.current) return;
     if (callPhaseRef.current === 'active') return;
     outcomeSaved.current = true;
+    const name = contact?.name;
     if (contactId && !skipOutcome) {
       fetch('/api/outcomes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ call_id: cId, contact_id: contactId, result: 'no_answer', notes: '' }),
       });
+      showBanner(`— Não atendeu${name ? ` — ${name}` : ''} (volta pra fila)`, 'gray');
+    } else if (skipOutcome) {
+      // AMD already flagged this — the brief "Atendeu" flash was actually voicemail/decline
+      showBanner(`📵 Caixa postal / recusada${name ? ` — ${name}` : ''} (volta pra fila)`, 'amber');
     }
     resetCallState();
     if (autoEnabledRef.current) startCountdown();
@@ -160,6 +173,7 @@ export default function Agent() {
 
   const triggerDial = useCallback(async (contactId = null) => {
     setError('');
+    setBanner(null);
     setDialing(true);
     try {
       const body = contactId ? JSON.stringify({ contact_id: contactId }) : '{}';
@@ -245,6 +259,9 @@ export default function Agent() {
           body: JSON.stringify({ call_id: callId, contact_id: contact.id, result: 'answered', notes: '' }),
         });
         archiveToPrev();
+      } else {
+        // AMD flagged this as voicemail/machine after the brief "Atendeu" — not a real answer
+        showBanner(`📵 Caixa postal / recusada${contact.name ? ` — ${contact.name}` : ''} (volta pra fila)`, 'amber');
       }
     }
     resetCallState();
@@ -324,6 +341,18 @@ export default function Agent() {
               {autoEnabled ? 'Pausar' : 'Ativar'}
             </button>
           </div>
+
+          {/* Feedback on how the last call ended */}
+          {banner && (
+            <div style={{
+              marginBottom: 14, padding: '9px 13px', borderRadius: 8, fontSize: 12.5, fontWeight: 500,
+              background: banner.tone === 'amber' ? 'rgba(245,158,11,0.1)' : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${banner.tone === 'amber' ? 'rgba(245,158,11,0.25)' : 'var(--border)'}`,
+              color: banner.tone === 'amber' ? 'var(--amber)' : 'var(--text-2)',
+            }}>
+              {banner.text}
+            </div>
+          )}
 
           {/* Current call */}
           {hasCall && contact ? (
