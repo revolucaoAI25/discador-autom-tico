@@ -10,12 +10,88 @@ const STATUS_LABELS = {
   no_answer:      'Não atendeu',
 };
 
+function AddContactModal({ onClose, onAdded }) {
+  const [name, setName]       = useState('');
+  const [phone, setPhone]     = useState('');
+  const [company, setCompany] = useState('');
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState('');
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    setSaving(true);
+    try {
+      const res  = await fetch('/api/contacts/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, phone, company }),
+      });
+      const data = await res.json();
+      if (data.error) { setError(data.error); return; }
+      onAdded();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+        zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="card"
+        style={{ width: 380, maxWidth: '90vw' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', margin: 0 }}>Adicionar contato</h2>
+          <button
+            onClick={onClose}
+            style={{ background: 'none', border: 'none', color: 'var(--text-3)', fontSize: 18, cursor: 'pointer', lineHeight: 1 }}
+          >×</button>
+        </div>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <input
+            placeholder="Nome *"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            autoFocus
+          />
+          <input
+            placeholder="Telefone * (ex: 31999219594)"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            required
+          />
+          <input
+            placeholder="Empresa (opcional)"
+            value={company}
+            onChange={(e) => setCompany(e.target.value)}
+          />
+          {error && <p style={{ color: 'var(--red)', fontSize: 12, margin: 0 }}>{error}</p>}
+          <button className="btn-primary" type="submit" disabled={saving} style={{ marginTop: 4 }}>
+            {saving ? 'Salvando…' : '+ Adicionar'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function Contacts() {
   const [contacts, setContacts]   = useState([]);
   const [filter, setFilter]       = useState('all');
   const [search, setSearch]       = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
   const fileRef = useRef();
 
   function load() {
@@ -66,6 +142,9 @@ export default function Contacts() {
                 {uploadMsg.ok ? '✓' : '✕'} {uploadMsg.text}
               </span>
             )}
+            <button className="btn-secondary" onClick={() => setShowAddModal(true)}>
+              + Adicionar contato
+            </button>
             <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleUpload} />
             <button className="btn-primary" onClick={() => fileRef.current.click()} disabled={uploading}>
               {uploading ? 'Importando…' : '+ Importar CSV'}
@@ -114,7 +193,7 @@ export default function Contacts() {
                   <td colSpan={7} className="empty-state">
                     {search || filter !== 'all'
                       ? 'Nenhum contato com esses filtros.'
-                      : 'Importe um CSV para começar.'}
+                      : 'Importe um CSV ou adicione um contato manualmente para começar.'}
                   </td>
                 </tr>
               ) : contacts.map((c, i) => (
@@ -147,6 +226,13 @@ export default function Contacts() {
           Colunas aceitas: <code>Nome</code>, <code>Telefone</code>, <code>Telefone 2</code>, <code>Nicho</code>, <code>Município</code>, <code>UF</code> — ou <code>name</code>, <code>phone</code>, <code>company</code>
         </div>
       </div>
+
+      {showAddModal && (
+        <AddContactModal
+          onClose={() => setShowAddModal(false)}
+          onAdded={load}
+        />
+      )}
     </>
   );
 }
