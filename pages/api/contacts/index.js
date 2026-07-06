@@ -28,7 +28,8 @@ function extractRow(row) {
   };
 
   return {
-    name:    g(['Nome', 'name', 'Name']),
+    name:      g(['Nome', 'name', 'Name']),
+    lead_name: g(['Nome do Lead', 'Nome do lead', 'nome do lead', 'lead_name', 'Lead Name']),
     phone1:  g(['Telefone', 'phone', 'Phone', 'telefone', 'fone']),
     phone2:  g(['Telefone 2', 'Telefone2', 'phone2']),
     company: g(['Nicho', 'company', 'empresa', 'Company']),
@@ -77,13 +78,14 @@ function handlePost(req, res) {
         if (!r.name) continue;
 
         const base = {
-          company: r.company || r._cityState,
-          email:   r.email,
-          address: r.address,
-          city:    r.city,
-          state:   r.state,
-          website: r.website,
-          cnpj:    r.cnpj,
+          company:   r.company || r._cityState,
+          email:     r.email,
+          address:   r.address,
+          city:      r.city,
+          state:     r.state,
+          website:   r.website,
+          cnpj:      r.cnpj,
+          lead_name: r.lead_name || null,
         };
 
         const p1 = normalizePhone(r.phone1);
