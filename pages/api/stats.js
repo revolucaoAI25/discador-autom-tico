@@ -3,14 +3,18 @@ import { supabase } from '../../lib/supabase';
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end();
 
-  // Aggregate contact counts by status in JS (fine for ~500 contacts/week)
-  const { data: allContacts } = await supabase.from('contacts').select('status');
-
+  // Use exact counts per status instead of fetching every row (which hits
+  // Supabase/PostgREST's 1000-row default cap and undercounts large lists).
+  const STATUS_KEYS = ['pending', 'called', 'interested', 'not_interested', 'no_answer'];
   const counts = { total: 0, pending: 0, called: 0, interested: 0, not_interested: 0, no_answer: 0 };
-  for (const c of allContacts || []) {
-    counts.total++;
-    if (counts[c.status] !== undefined) counts[c.status]++;
-  }
+
+  const [{ count: total }, ...statusCounts] = await Promise.all([
+    supabase.from('contacts').select('id', { count: 'exact', head: true }),
+    ...STATUS_KEYS.map((s) => supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('status', s)),
+  ]);
+
+  counts.total = total || 0;
+  STATUS_KEYS.forEach((s, i) => { counts[s] = statusCounts[i].count || 0; });
 
   // Call stats
   const { data: callRows } = await supabase.from('calls').select('duration').not('duration', 'is', null);

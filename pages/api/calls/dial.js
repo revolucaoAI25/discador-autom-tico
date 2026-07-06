@@ -48,6 +48,7 @@ export default async function handler(req, res) {
       .in('status', ['pending', 'no_answer'])
       .is('hibernating_until', null)
       .lt('attempts_today', MAX_PER_DAY)
+      .order('queue_order', { ascending: true, nullsFirst: false })
       .order('last_call_at', { ascending: true, nullsFirst: true })
       .limit(1000);
 

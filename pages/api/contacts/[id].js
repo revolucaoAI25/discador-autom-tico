@@ -30,7 +30,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'PATCH') {
-    const allowed = ['status','notes','callback_at','scheduled_at','hibernating_until'];
+    const allowed = ['status','notes','callback_at','scheduled_at','hibernating_until','queue_order'];
     const updates = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) updates[key] = req.body[key];
