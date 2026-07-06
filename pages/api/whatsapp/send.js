@@ -26,7 +26,7 @@ export default async function handler(req, res) {
   if (!contact)  return res.status(404).json({ error: 'Contato não encontrado' });
 
   const phone = normalizePhone(contact.phone);
-  const name  = toStartCase(contact.lead_name || contact.name);
+  const name  = toStartCase(contact.lead_name);
 
   try {
     const r = await fetch(dispatch.url, {
