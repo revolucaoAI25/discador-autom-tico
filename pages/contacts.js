@@ -92,6 +92,7 @@ export default function Contacts() {
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [selected, setSelected]   = useState(() => new Set());
   const fileRef = useRef();
 
   function load() {
@@ -102,6 +103,33 @@ export default function Contacts() {
   }
 
   useEffect(() => { load(); }, [filter, search]);
+  useEffect(() => { setSelected(new Set()); }, [filter, search]);
+
+  function toggleOne(id) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected((prev) =>
+      prev.size === contacts.length ? new Set() : new Set(contacts.map((c) => c.id))
+    );
+  }
+
+  async function handleBulkDelete() {
+    if (selected.size === 0) return;
+    if (!confirm(`Deletar ${selected.size} contato${selected.size !== 1 ? 's' : ''} selecionado${selected.size !== 1 ? 's' : ''}?`)) return;
+    await fetch('/api/contacts/bulk-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [...selected] }),
+    });
+    setSelected(new Set());
+    load();
+  }
 
   async function handleUpload(e) {
     const file = e.target.files[0];
@@ -142,6 +170,11 @@ export default function Contacts() {
                 {uploadMsg.ok ? '✓' : '✕'} {uploadMsg.text}
               </span>
             )}
+            {selected.size > 0 && (
+              <button className="btn-danger" onClick={handleBulkDelete}>
+                Excluir {selected.size} selecionado{selected.size !== 1 ? 's' : ''}
+              </button>
+            )}
             <button className="btn-secondary" onClick={() => setShowAddModal(true)}>
               + Adicionar contato
             </button>
@@ -178,6 +211,13 @@ export default function Contacts() {
           <table>
             <thead>
               <tr>
+                <th style={{ width: 32 }}>
+                  <input
+                    type="checkbox"
+                    checked={contacts.length > 0 && selected.size === contacts.length}
+                    onChange={toggleAll}
+                  />
+                </th>
                 <th style={{ width: 36 }}>#</th>
                 <th>Nome</th>
                 <th>Empresa</th>
@@ -190,7 +230,7 @@ export default function Contacts() {
             <tbody>
               {contacts.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="empty-state">
+                  <td colSpan={8} className="empty-state">
                     {search || filter !== 'all'
                       ? 'Nenhum contato com esses filtros.'
                       : 'Importe um CSV ou adicione um contato manualmente para começar.'}
@@ -198,6 +238,13 @@ export default function Contacts() {
                 </tr>
               ) : contacts.map((c, i) => (
                 <tr key={c.id}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(c.id)}
+                      onChange={() => toggleOne(c.id)}
+                    />
+                  </td>
                   <td style={{ color: 'var(--text-3)', fontSize: 11 }}>{i + 1}</td>
                   <td style={{ fontWeight: 500 }}>{c.name}</td>
                   <td style={{ color: 'var(--text-2)' }}>{c.company || '—'}</td>
