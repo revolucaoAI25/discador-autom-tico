@@ -1,6 +1,7 @@
 import { formidable } from 'formidable';
 import { parse } from 'csv-parse/sync';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 import { supabase } from '../../../lib/supabase';
 
 export const config = { api: { bodyParser: false } };
@@ -86,10 +87,13 @@ function handlePost(req, res) {
         };
 
         const p1 = normalizePhone(r.phone1);
-        if (p1) rows.push({ name: r.name, phone: p1, ...base });
-
         const p2 = normalizePhone(r.phone2);
-        if (p2 && p2 !== p1) rows.push({ name: r.name, phone: p2, ...base });
+        // Link both numbers of the same lead so a decision made on one
+        // (agendado, interessado, sem interesse, callback) propagates to the other.
+        const groupId = (p1 && p2 && p2 !== p1) ? randomUUID() : null;
+
+        if (p1) rows.push({ name: r.name, phone: p1, ...base, group_id: groupId });
+        if (p2 && p2 !== p1) rows.push({ name: r.name, phone: p2, ...base, group_id: groupId });
       }
 
       if (rows.length === 0) {

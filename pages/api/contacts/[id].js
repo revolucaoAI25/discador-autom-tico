@@ -1,4 +1,5 @@
 import { supabase } from '../../../lib/supabase';
+import { propagateLinkedStatus } from '../../../lib/linkedContacts';
 
 const VALID_STATUSES = ['pending','no_answer','answered','callback','interested','not_interested','scheduled'];
 
@@ -17,7 +18,15 @@ export default async function handler(req, res) {
       .order('created_at', { ascending: false })
       .limit(10);
 
-    return res.json({ contact, outcomes: outcomes || [] });
+    let linkedContacts = [];
+    if (contact.group_id) {
+      const { data: siblings } = await supabase
+        .from('contacts').select('id, phone, status')
+        .eq('group_id', contact.group_id).neq('id', id);
+      linkedContacts = siblings || [];
+    }
+
+    return res.json({ contact, outcomes: outcomes || [], linkedContacts });
   }
 
   if (req.method === 'PATCH') {
@@ -38,6 +47,7 @@ export default async function handler(req, res) {
     }
     const { error } = await supabase.from('contacts').update(updates).eq('id', id);
     if (error) return res.status(500).json({ error: error.message });
+    await propagateLinkedStatus(supabase, id, updates);
     return res.json({ ok: true });
   }
 

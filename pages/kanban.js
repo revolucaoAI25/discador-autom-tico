@@ -58,6 +58,7 @@ function LeadModal({ contact, onClose, onUpdate }) {
     { label: 'Site',      value: contact.website, link: true },
     { label: 'Callback',  value: contact.callback_at  ? fmtDatetime(contact.callback_at)  : null },
     { label: 'Reunião',   value: contact.scheduled_at ? fmtDatetime(contact.scheduled_at) : null },
+    { label: '🔗 Vinculado', value: contact.group_id ? 'Sim — mesmo lead, outro número acompanha o status' : null },
     { label: 'Tentativas hoje', value: contact.attempts_today ?? 0 },
     { label: 'Dias distintos', value: contact.distinct_days ?? 0 },
     { label: 'Hiberna até',    value: contact.hibernating_until ? fmtDate(contact.hibernating_until) : null },

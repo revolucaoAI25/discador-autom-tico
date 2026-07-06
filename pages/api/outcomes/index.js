@@ -1,4 +1,5 @@
 import { supabase } from '../../../lib/supabase';
+import { propagateLinkedStatus } from '../../../lib/linkedContacts';
 
 const STATUS_MAP = {
   no_answer:      'no_answer',
@@ -50,6 +51,7 @@ export default async function handler(req, res) {
     }
 
     await supabase.from('contacts').update(contactUpdate).eq('id', contact_id);
+    await propagateLinkedStatus(supabase, contact_id, contactUpdate);
   }
 
   res.json({ id: data.id });
