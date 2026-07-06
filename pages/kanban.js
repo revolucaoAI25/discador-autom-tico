@@ -15,6 +15,7 @@ const COLUMNS = [
 ];
 
 const COL = Object.fromEntries(COLUMNS.map((c) => [c.key, c]));
+const PAGE_SIZE = 40; // cards rendered per column before scrolling loads more
 
 function fmtDate(dt) {
   if (!dt) return '—';
@@ -254,8 +255,20 @@ export default function Kanban() {
   const [search, setSearch]         = useState('');
   const [loading, setLoading]       = useState(true);
   const [selected, setSelected]     = useState(null); // lead detail modal
+  const [visibleCounts, setVisibleCounts] = useState(() => Object.fromEntries(COLUMNS.map((c) => [c.key, PAGE_SIZE])));
   const dragId   = useRef(null);
   const [dragOver, setDragOver]     = useState(null);
+
+  function resetVisibleCounts() {
+    setVisibleCounts(Object.fromEntries(COLUMNS.map((c) => [c.key, PAGE_SIZE])));
+  }
+
+  function handleColumnScroll(e, key) {
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
+      setVisibleCounts((prev) => ({ ...prev, [key]: prev[key] + PAGE_SIZE }));
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -268,10 +281,12 @@ export default function Kanban() {
       else g['pending'].push(c);
     }
     setGrouped(g);
+    resetVisibleCounts();
     setLoading(false);
   }
 
   useEffect(() => { load(); }, []);
+  useEffect(() => { resetVisibleCounts(); }, [search]);
 
   async function handleStatusChange(id, newStatus) {
     setGrouped((prev) => {
@@ -364,21 +379,33 @@ export default function Kanban() {
               </div>
 
               {/* Cards */}
-              <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: 7, overflowY: 'auto', flex: 1 }}>
+              <div
+                onScroll={(e) => handleColumnScroll(e, col.key)}
+                style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: 7, overflowY: 'auto', flex: 1 }}
+              >
                 {cards.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '28px 8px', color: 'var(--text-3)', fontSize: 12, border: `1px dashed ${isTarget ? col.color + '44' : 'var(--border)'}`, borderRadius: 8, transition: 'border-color 0.15s' }}>
                     {isTarget ? 'Soltar aqui' : 'Vazio'}
                   </div>
-                ) : cards.map((c) => (
-                  <Card
-                    key={c.id}
-                    contact={c}
-                    onDragStart={(e, id) => { dragId.current = id; e.dataTransfer.effectAllowed = 'move'; }}
-                    onStatusChange={handleStatusChange}
-                    onCall={(contact) => router.push(`/agent?contact=${contact.id}`)}
-                    onClick={() => setSelected(c)}
-                  />
-                ))}
+                ) : (
+                  <>
+                    {cards.slice(0, visibleCounts[col.key] || PAGE_SIZE).map((c) => (
+                      <Card
+                        key={c.id}
+                        contact={c}
+                        onDragStart={(e, id) => { dragId.current = id; e.dataTransfer.effectAllowed = 'move'; }}
+                        onStatusChange={handleStatusChange}
+                        onCall={(contact) => router.push(`/agent?contact=${contact.id}`)}
+                        onClick={() => setSelected(c)}
+                      />
+                    ))}
+                    {cards.length > (visibleCounts[col.key] || PAGE_SIZE) && (
+                      <div style={{ textAlign: 'center', padding: '8px 0', color: 'var(--text-3)', fontSize: 11 }}>
+                        Role para carregar mais…
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           );
