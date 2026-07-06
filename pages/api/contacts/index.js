@@ -47,16 +47,32 @@ function extractRow(row) {
 async function handleGet(req, res) {
   const { status, search } = req.query;
 
-  let query = supabase.from('contacts').select('*').order('created_at', { ascending: false });
+  // Supabase/PostgREST caps each request at 1000 rows — page through until
+  // everything is fetched so the kanban shows every contact, not just the first 1000.
+  const PAGE_SIZE = 1000;
+  let all = [];
+  let from = 0;
 
-  if (status && status !== 'all') query = query.eq('status', status);
-  if (search) {
-    query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%,company.ilike.%${search}%`);
+  while (true) {
+    let query = supabase
+      .from('contacts').select('*')
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (status && status !== 'all') query = query.eq('status', status);
+    if (search) {
+      query = query.or(`name.ilike.%${search}%,phone.ilike.%${search}%,company.ilike.%${search}%`);
+    }
+
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+
+    all = all.concat(data || []);
+    if (!data || data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
   }
 
-  const { data, error } = await query;
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ contacts: data });
+  res.json({ contacts: all });
 }
 
 function handlePost(req, res) {
