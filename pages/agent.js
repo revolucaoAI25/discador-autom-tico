@@ -7,12 +7,10 @@ import OutcomeForm from '../components/OutcomeForm';
 
 const Softphone = dynamic(() => import('../components/Softphone'), { ssr: false });
 
-const COUNTDOWN_SECONDS  = 3;
-const POLL_MS            = 1000;
-const RING_TIMEOUT_S     = 40; // failsafe if Twilio never reports a terminal status
-const FAILED_STATUSES    = ['busy', 'no-answer', 'failed', 'canceled'];
-const VERIFY_WINDOW_MS   = 4000; // grace period after connecting to let AMD flag voicemail
-const VERIFY_POLL_MS     = 700;
+const COUNTDOWN_SECONDS = 3;
+const POLL_MS           = 1000;
+const RING_TIMEOUT_S    = 40; // failsafe if Twilio never reports a terminal status
+const FAILED_STATUSES   = ['busy', 'no-answer', 'failed', 'canceled'];
 
 export default function Agent() {
   const router = useRouter();
@@ -20,8 +18,7 @@ export default function Agent() {
   // Current call
   const [contact, setContact]         = useState(null);
   const [callId, setCallId]           = useState(null);
-  // 'idle' | 'ringing' (dialing, lead hasn't picked up) | 'connecting' (lead picked up, bridging to agent) |
-  // 'verifying' (browser bridged, giving AMD a moment to flag voicemail before trusting it's a human) | 'active'
+  // 'idle' | 'ringing' (dialing, lead hasn't picked up) | 'connecting' (lead picked up, bridging to agent) | 'active' (agent is on the line)
   const [callPhase, setCallPhase]     = useState('idle');
   const [elapsed, setElapsed]         = useState(0);
   const [ringElapsed, setRingElapsed] = useState(0);
@@ -41,7 +38,6 @@ export default function Agent() {
   const timerRef       = useRef(null);
   const ringTimerRef   = useRef(null);
   const pollRef        = useRef(null);
-  const verifyPollRef  = useRef(null);
   const countdownRef   = useRef(null);
   const outcomeSaved   = useRef(false);
   const autoEnabledRef = useRef(true);
@@ -80,9 +76,9 @@ export default function Agent() {
     return () => clearInterval(timerRef.current);
   }, [callPhase]);
 
-  // Ring/connecting/verifying timer
+  // Ring/connecting timer
   useEffect(() => {
-    if (callPhase === 'ringing' || callPhase === 'connecting' || callPhase === 'verifying') {
+    if (callPhase === 'ringing' || callPhase === 'connecting') {
       if (callPhase === 'ringing') setRingElapsed(0);
       ringTimerRef.current = setInterval(() => setRingElapsed((s) => s + 1), 1000);
     } else {
@@ -98,11 +94,6 @@ export default function Agent() {
   function stopPolling() {
     clearInterval(pollRef.current);
     pollRef.current = null;
-  }
-
-  function stopVerifying() {
-    clearInterval(verifyPollRef.current);
-    verifyPollRef.current = null;
   }
 
   // Poll the real Twilio call status until the lead answers or the call fails —
@@ -217,7 +208,6 @@ export default function Agent() {
 
   function resetCallState() {
     stopPolling();
-    stopVerifying();
     setContact(null);
     setCallId(null);
     setCallPhase('idle');
@@ -272,9 +262,8 @@ export default function Agent() {
     if (cId) {
       fetch(`/api/calls/${cId}/hangup`, { method: 'POST' });
     }
-    if (phaseAtClick === 'ringing' || phaseAtClick === 'connecting' || phaseAtClick === 'verifying') {
+    if (phaseAtClick === 'ringing' || phaseAtClick === 'connecting') {
       stopPolling();
-      stopVerifying();
       endUnansweredCall(cId, contact?.id);
     }
     // If phase is 'active', the softphone's disconnect event drives handleCallEnded.
@@ -285,44 +274,12 @@ export default function Agent() {
     setCallPhase('connecting');
   }
 
-  // Browser bridged the call, but some carriers auto-route a declined call
-  // straight to voicemail, which Twilio sees as "answered" too. Give AMD a
-  // short window to flag that before trusting this is a real human and
-  // showing the outcome form.
   function handleCallConnected() {
     stopPolling();
-    setCallPhase('verifying');
-    startVerifying(callId, contact?.id);
-  }
-
-  function startVerifying(cId, contactId) {
-    stopVerifying();
-    let elapsedMs = 0;
-    verifyPollRef.current = setInterval(async () => {
-      elapsedMs += VERIFY_POLL_MS;
-      try {
-        const r = await fetch(`/api/calls/${cId}/status`);
-        const d = await r.json();
-        if (d.hasOutcome) {
-          // AMD already recorded an outcome (e.g. voicemail) — it will hang up
-          // shortly, which drives handleCallEnded to reset and advance.
-          stopVerifying();
-          return;
-        }
-      } catch (_) {}
-      if (elapsedMs >= VERIFY_WINDOW_MS) {
-        stopVerifying();
-        promoteToActive(cId, contactId);
-      }
-    }, VERIFY_POLL_MS);
-  }
-
-  function promoteToActive(cId, contactId) {
-    if (callPhaseRef.current !== 'verifying') return; // call already ended/changed since
     setCallPhase('active');
-    setElapsed(0);
-    if (contactId) {
-      fetch(`/api/contacts/${contactId}`, {
+    // Mark contact as answered immediately when call is picked up
+    if (contact?.id) {
+      fetch(`/api/contacts/${contact.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'answered' }),
@@ -332,9 +289,8 @@ export default function Agent() {
 
   const callActive     = callPhase === 'active';
   const callConnecting = callPhase === 'connecting';
-  const callVerifying  = callPhase === 'verifying';
   const callRinging    = callPhase === 'ringing';
-  const hasCall         = callActive || callConnecting || callVerifying || callRinging;
+  const hasCall         = callActive || callConnecting || callRinging;
 
   return (
     <>
@@ -388,12 +344,6 @@ export default function Agent() {
                           <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Conectando…</span>
                         </>
                       )}
-                      {callVerifying && (
-                        <>
-                          <span className="ringing-dot" />
-                          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--amber)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Confirmando atendimento…</span>
-                        </>
-                      )}
                       {callActive && (
                         <>
                           <span className="live-dot" />
@@ -437,11 +387,6 @@ export default function Agent() {
               {callConnecting && (
                 <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 13, color: 'var(--text-3)' }}>
                   Lead atendeu — conectando ao seu telefone…
-                </div>
-              )}
-              {callVerifying && (
-                <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 13, color: 'var(--text-3)' }}>
-                  Confirmando que é um atendimento humano…
                 </div>
               )}
             </>
