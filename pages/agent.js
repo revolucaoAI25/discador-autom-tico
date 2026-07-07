@@ -7,7 +7,7 @@ import OutcomeForm from '../components/OutcomeForm';
 
 const Softphone = dynamic(() => import('../components/Softphone'), { ssr: false });
 
-const COUNTDOWN_SECONDS = 3;
+const COUNTDOWN_SECONDS = 7;
 const POLL_MS           = 1000;
 const RING_TIMEOUT_S    = 40; // failsafe if Twilio never reports a terminal status
 const FAILED_STATUSES   = ['busy', 'no-answer', 'failed', 'canceled'];
