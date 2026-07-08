@@ -21,6 +21,30 @@ function normalizePhone(raw) {
   return raw;
 }
 
+const PHONE_RE = /\(\d{2}\)\s?\d{4,5}-\d{4}/;
+
+// Common Google Maps scraper export with no header row:
+// Name, Phone, (blank), Status, Address, (blank x3), Website, Maps URL, Rating, Reviews, (blank), Category, (blank), Subcategory
+function extractPositionalRow(cols) {
+  const name    = (cols[0] || '').trim();
+  const phone1  = (cols[1] || '').trim();
+  const address = (cols[4] || '').trim();
+  const website = (cols[8] || '').trim();
+  const category    = (cols[13] || '').trim();
+  const subcategory = (cols[15] || '').trim();
+
+  const m = address.match(/,\s*([^,]+?)\s*-\s*([A-Z]{2}),\s*\d{5}-?\d{3},?\s*Brasil\s*$/);
+  const city  = m ? m[1].trim() : '';
+  const state = m ? m[2].trim() : '';
+
+  return {
+    name, lead_name: '', phone1, phone2: '',
+    company: subcategory || category,
+    email: '', address, city, state, website, cnpj: '',
+    _cityState: [city, state].filter(Boolean).join('/'),
+  };
+}
+
 function extractRow(row) {
   const g = (keys) => {
     for (const k of keys) { const v = (row[k] || '').trim(); if (v) return v; }
@@ -86,11 +110,23 @@ function handlePost(req, res) {
 
     try {
       const content = fs.readFileSync(file.filepath, 'utf-8');
-      const records = parse(content, { columns: true, skip_empty_lines: true, trim: true });
+      const rawRows = parse(content, { columns: false, skip_empty_lines: true, trim: true });
+
+      // Some scrapers (e.g. Google Maps exports) ship with no header row at
+      // all — the first "row" is already data. Detect that by checking if the
+      // first row already looks like a phone number instead of a column name.
+      const headerless = rawRows.length > 0 && rawRows[0].some((cell) => PHONE_RE.test(cell || ''));
+
+      let records;
+      if (headerless) {
+        records = rawRows;
+      } else {
+        records = parse(content, { columns: true, skip_empty_lines: true, trim: true });
+      }
 
       const rows = [];
       for (const record of records) {
-        const r = extractRow(record);
+        const r = headerless ? extractPositionalRow(record) : extractRow(record);
         if (!r.name) continue;
 
         const base = {
