@@ -124,6 +124,14 @@ export default async function handler(req, res) {
 
     res.json({ call_id: callRow.id, twilio_sid: call.sid, contact });
   } catch (e) {
+    // The contact was already claimed (attempt counted) before we knew Twilio
+    // would fail (e.g. geo-permission errors) — undo that so a failed call
+    // doesn't burn one of its daily attempts for nothing.
+    await supabase.from('contacts').update({
+      last_call_at:   contact.last_call_at,
+      last_call_date: contact.last_call_date,
+      attempts_today: contact.attempts_today,
+    }).eq('id', contact.id);
     res.status(500).json({ error: e.message });
   }
 }
