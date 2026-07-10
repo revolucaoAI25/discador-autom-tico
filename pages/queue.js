@@ -77,6 +77,12 @@ export default function Queue() {
     setContacts((prev) => prev.filter((c) => c.id !== id));
   }
 
+  async function handleResetOrder() {
+    if (!confirm('Voltar a fila pra ordem padrão? Isso desfaz toda a reordenação manual.')) return;
+    await fetch('/api/contacts/reset-order', { method: 'POST' });
+    load();
+  }
+
   const q = search.toLowerCase();
   const filtered = q
     ? contacts.filter((c) => c.name?.toLowerCase().includes(q) || c.phone?.includes(q) || c.company?.toLowerCase().includes(q))
@@ -97,12 +103,15 @@ export default function Queue() {
               onChange={(e) => setSearch(e.target.value)}
               style={{ width: 200, padding: '7px 12px', fontSize: 13 }}
             />
+            <button className="btn-secondary" onClick={handleResetOrder} style={{ padding: '7px 12px', fontSize: 12 }}>
+              Ordem padrão
+            </button>
             <button className="btn-secondary" onClick={load} style={{ padding: '7px 12px', fontSize: 12 }}>↺</button>
           </div>
         </div>
 
         <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: -8, marginBottom: 16 }}>
-          Arraste para reordenar — quem está no topo é discado primeiro pelo auto-dial.
+          Arraste para reordenar — essa ordem é fixa e se repete a cada nova tentativa (não só na primeira).
         </p>
 
         {loading ? (

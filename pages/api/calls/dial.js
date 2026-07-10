@@ -3,6 +3,7 @@ import { getClient } from '../../../lib/twilio';
 
 const MAX_PER_DAY    = 4;
 const MAX_PER_HOUR   = 2;
+const MIN_GAP_MIN     = 15; // minimum minutes between two calls to the same contact
 const MAX_DAYS       = 5;  // distinct days with no answer → hibernate
 const HIBERNATE_DAYS = 15;
 
@@ -48,19 +49,21 @@ export default async function handler(req, res) {
       .in('status', ['pending', 'no_answer'])
       .is('hibernating_until', null)
       .lt('attempts_today', MAX_PER_DAY)
-      // Whoever waited longest (or was never called) goes next — this is what
-      // makes the manual order loop correctly: the first pass follows
-      // queue_order exactly (everyone ties on last_call_at = null), and every
-      // pass after that naturally repeats the same relative sequence, instead
-      // of a fixed-order contact jumping back to the front the moment its
-      // per-hour/day cooldown clears, ahead of contacts still on their first attempt.
-      .order('last_call_at', { ascending: true, nullsFirst: true })
+      // The manual order (queue_order) is permanent and always wins — it must
+      // hold across every retry loop, not just the first attempt. last_call_at
+      // only breaks ties among contacts that were never manually reordered.
       .order('queue_order', { ascending: true, nullsFirst: false })
+      .order('last_call_at', { ascending: true, nullsFirst: true })
       .limit(1000);
 
     if (candidates?.length) {
-      const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const hourAgo   = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const gapCutoff = new Date(Date.now() - MIN_GAP_MIN * 60 * 1000);
       for (const c of candidates) {
+        // Never redial the same contact back-to-back — give the rest of the
+        // queue a chance first, even if the fixed order puts them first again.
+        if (c.last_call_at && new Date(c.last_call_at) > gapCutoff) continue;
+
         const { count } = await supabase
           .from('calls')
           .select('id', { count: 'exact', head: true })
