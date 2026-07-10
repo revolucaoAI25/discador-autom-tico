@@ -48,8 +48,14 @@ export default async function handler(req, res) {
       .in('status', ['pending', 'no_answer'])
       .is('hibernating_until', null)
       .lt('attempts_today', MAX_PER_DAY)
-      .order('queue_order', { ascending: true, nullsFirst: false })
+      // Whoever waited longest (or was never called) goes next — this is what
+      // makes the manual order loop correctly: the first pass follows
+      // queue_order exactly (everyone ties on last_call_at = null), and every
+      // pass after that naturally repeats the same relative sequence, instead
+      // of a fixed-order contact jumping back to the front the moment its
+      // per-hour/day cooldown clears, ahead of contacts still on their first attempt.
       .order('last_call_at', { ascending: true, nullsFirst: true })
+      .order('queue_order', { ascending: true, nullsFirst: false })
       .limit(1000);
 
     if (candidates?.length) {
@@ -97,11 +103,10 @@ export default async function handler(req, res) {
       last_call_at:   new Date().toISOString(),
       last_call_date: today,
       attempts_today: (contact.attempts_today || 0) + 1,
-      // Consume the manual queue priority once dialed — otherwise a contact
-      // pinned to the front (e.g. via drag-and-drop reorder) stays there
-      // forever and gets redialed first every time its cooldown resets,
-      // instead of rotating fairly through the rest of the queue.
-      queue_order: null,
+      // queue_order is intentionally kept — the manual order is meant to hold
+      // across every retry loop, not just the first attempt. The per-hour/day
+      // caps below are what prevent hammering the same contact too often;
+      // they act as a filter over the fixed order, not a reason to reshuffle it.
     }).eq('id', contact.id);
 
     res.json({ call_id: callRow.id, twilio_sid: call.sid, contact });
