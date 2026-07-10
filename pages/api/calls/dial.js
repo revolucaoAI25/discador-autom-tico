@@ -97,6 +97,11 @@ export default async function handler(req, res) {
       last_call_at:   new Date().toISOString(),
       last_call_date: today,
       attempts_today: (contact.attempts_today || 0) + 1,
+      // Consume the manual queue priority once dialed — otherwise a contact
+      // pinned to the front (e.g. via drag-and-drop reorder) stays there
+      // forever and gets redialed first every time its cooldown resets,
+      // instead of rotating fairly through the rest of the queue.
+      queue_order: null,
     }).eq('id', contact.id);
 
     res.json({ call_id: callRow.id, twilio_sid: call.sid, contact });
