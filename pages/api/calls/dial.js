@@ -3,7 +3,6 @@ import { getClient } from '../../../lib/twilio';
 
 const MAX_PER_DAY    = 4;
 const MAX_PER_HOUR   = 2;
-const MIN_GAP_MIN     = 15; // minimum minutes between two calls to the same contact
 const MAX_DAYS       = 5;  // distinct days with no answer → hibernate
 const HIBERNATE_DAYS = 15;
 
@@ -26,6 +25,28 @@ async function resetDailyCounters() {
     .not('last_call_date', 'is', null);
 }
 
+// Atomically "claims" a contact for dialing by updating it only if its
+// last_call_at hasn't changed since we read it. If two dial() requests race
+// and pick the same top-of-queue contact at the same time, only one of these
+// conditional updates succeeds — the other gets 0 rows back and moves on to
+// the next candidate instead of both dialing the same person.
+async function claimContact(c) {
+  const today = new Date().toISOString().slice(0, 10);
+  let query = supabase
+    .from('contacts')
+    .update({
+      last_call_at:   new Date().toISOString(),
+      last_call_date: today,
+      attempts_today: (c.attempts_today || 0) + 1,
+    })
+    .eq('id', c.id);
+
+  query = c.last_call_at ? query.eq('last_call_at', c.last_call_at) : query.is('last_call_at', null);
+
+  const { data } = await query.select();
+  return !!(data && data.length);
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
@@ -40,7 +61,7 @@ export default async function handler(req, res) {
   if (contact_id) {
     const { data } = await supabase
       .from('contacts').select('*').eq('id', contact_id).single();
-    contact = data;
+    if (data && await claimContact(data)) contact = data;
   } else {
     // Find next eligible contact in queue
     const { data: candidates } = await supabase
@@ -57,19 +78,19 @@ export default async function handler(req, res) {
       .limit(1000);
 
     if (candidates?.length) {
-      const hourAgo   = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      const gapCutoff = new Date(Date.now() - MIN_GAP_MIN * 60 * 1000);
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       for (const c of candidates) {
-        // Never redial the same contact back-to-back — give the rest of the
-        // queue a chance first, even if the fixed order puts them first again.
-        if (c.last_call_at && new Date(c.last_call_at) > gapCutoff) continue;
-
         const { count } = await supabase
           .from('calls')
           .select('id', { count: 'exact', head: true })
           .eq('contact_id', c.id)
           .gte('started_at', hourAgo);
-        if ((count || 0) < MAX_PER_HOUR) { contact = c; break; }
+        if ((count || 0) >= MAX_PER_HOUR) continue;
+
+        // Try to claim this candidate; if another concurrent request already
+        // grabbed it (its last_call_at moved), skip to the next one instead
+        // of both requests dialing the same contact.
+        if (await claimContact(c)) { contact = c; break; }
       }
     }
   }
@@ -100,17 +121,6 @@ export default async function handler(req, res) {
       .from('calls')
       .insert({ contact_id: contact.id, twilio_sid: call.sid })
       .select().single();
-
-    const today = new Date().toISOString().slice(0, 10);
-    await supabase.from('contacts').update({
-      last_call_at:   new Date().toISOString(),
-      last_call_date: today,
-      attempts_today: (contact.attempts_today || 0) + 1,
-      // queue_order is intentionally kept — the manual order is meant to hold
-      // across every retry loop, not just the first attempt. The per-hour/day
-      // caps below are what prevent hammering the same contact too often;
-      // they act as a filter over the fixed order, not a reason to reshuffle it.
-    }).eq('id', contact.id);
 
     res.json({ call_id: callRow.id, twilio_sid: call.sid, contact });
   } catch (e) {
