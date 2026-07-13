@@ -14,17 +14,18 @@ export default function Queue() {
   const dragId    = useRef(null);
   const [dragOver, setDragOver] = useState(null);
 
-  // Must mirror the exact ordering used by /api/calls/dial: the manual order
-  // is permanent and applies to the whole queue; last_call_at only breaks
-  // ties for contacts that were never part of any manual ordering.
+  // Must mirror the exact ordering used by /api/calls/dial: fair round-robin —
+  // whoever waited longest (or was never called) goes first; queue_order is
+  // the fixed sequence used to break ties, which is what makes each round
+  // follow your manual order without anyone hogging repeat attempts first.
   function sortContacts(list) {
     return [...list].sort((a, b) => {
-      const aOrder = a.queue_order ?? Infinity;
-      const bOrder = b.queue_order ?? Infinity;
-      if (aOrder !== bOrder) return aOrder - bOrder;
       const aCall = a.last_call_at ? new Date(a.last_call_at).getTime() : -Infinity;
       const bCall = b.last_call_at ? new Date(b.last_call_at).getTime() : -Infinity;
-      return aCall - bCall;
+      if (aCall !== bCall) return aCall - bCall;
+      const aOrder = a.queue_order ?? Infinity;
+      const bOrder = b.queue_order ?? Infinity;
+      return aOrder - bOrder;
     });
   }
 
@@ -114,7 +115,7 @@ export default function Queue() {
         </div>
 
         <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: -8, marginBottom: 16 }}>
-          Arraste para reordenar — a ordem é salva pra fila inteira (inclusive quem você não mexeu) e vale em todas as tentativas, não só na primeira.
+          Arraste para reordenar — a ordem vale por rodada: discado nessa sequência, e ao voltar pro início repete a mesma ordem, sem ninguém repetir antes do resto ser chamado.
         </p>
 
         {loading ? (

@@ -70,14 +70,18 @@ export default async function handler(req, res) {
       .in('status', ['pending', 'no_answer'])
       .is('hibernating_until', null)
       .lt('attempts_today', MAX_PER_DAY)
-      // The manual order is the queue — permanent, and it applies to every
-      // contact in it (not just the ones that were dragged; reordering saves
-      // a queue_order for the whole list, so untouched contacts keep their
-      // relative position as part of the new order too). It holds across every
-      // retry loop. last_call_at only breaks ties for contacts that were never
-      // part of any manual ordering (queue_order is null).
-      .order('queue_order', { ascending: true, nullsFirst: false })
+      // Fair round-robin: whoever waited longest (or was never called) goes
+      // next. queue_order defines the FIXED SEQUENCE for the round — it's the
+      // tie-breaker whenever last_call_at ties (which is every contact at the
+      // very start, and, in practice, stays true round after round since each
+      // pass dials everyone in the same relative sequence before anyone gets
+      // a repeat). This is what makes it loop through the manual order one
+      // round at a time — top 10 first, then everyone else, then back to the
+      // top 10 — instead of the top 10 hogging repeat attempts before the
+      // rest of the queue is ever reached. It also naturally resumes wherever
+      // you left off, since whoever hasn't been called yet always sorts first.
       .order('last_call_at', { ascending: true, nullsFirst: true })
+      .order('queue_order', { ascending: true, nullsFirst: false })
       .limit(1000);
 
     if (candidates?.length) {
