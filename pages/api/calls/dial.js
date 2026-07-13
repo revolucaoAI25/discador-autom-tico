@@ -70,11 +70,15 @@ export default async function handler(req, res) {
       .in('status', ['pending', 'no_answer'])
       .is('hibernating_until', null)
       .lt('attempts_today', MAX_PER_DAY)
-      // The manual order (queue_order) is permanent and always wins — it must
-      // hold across every retry loop, not just the first attempt. last_call_at
-      // only breaks ties among contacts that were never manually reordered.
-      .order('queue_order', { ascending: true, nullsFirst: false })
+      // Whoever waited longest (or was never called) always goes first — this
+      // is what makes the queue actually rotate through everyone instead of a
+      // handful of manually-reordered contacts permanently starving the rest.
+      // queue_order only breaks ties among contacts with the same last_call_at
+      // (in practice: the first pass, before anyone in the queue has been
+      // called yet), so a manual reorder still determines who goes first —
+      // it just can't camp at the front forever once it's had its turn.
       .order('last_call_at', { ascending: true, nullsFirst: true })
+      .order('queue_order', { ascending: true, nullsFirst: false })
       .limit(1000);
 
     if (candidates?.length) {

@@ -14,14 +14,16 @@ export default function Queue() {
   const dragId    = useRef(null);
   const [dragOver, setDragOver] = useState(null);
 
+  // Must mirror the exact ordering used by /api/calls/dial: whoever waited
+  // longest (or was never called) goes first; queue_order only breaks ties.
   function sortContacts(list) {
     return [...list].sort((a, b) => {
+      const aCall = a.last_call_at ? new Date(a.last_call_at).getTime() : -Infinity;
+      const bCall = b.last_call_at ? new Date(b.last_call_at).getTime() : -Infinity;
+      if (aCall !== bCall) return aCall - bCall;
       const aOrder = a.queue_order ?? Infinity;
       const bOrder = b.queue_order ?? Infinity;
-      if (aOrder !== bOrder) return aOrder - bOrder;
-      const aCall = a.last_call_at ? new Date(a.last_call_at).getTime() : 0;
-      const bCall = b.last_call_at ? new Date(b.last_call_at).getTime() : 0;
-      return aCall - bCall;
+      return aOrder - bOrder;
     });
   }
 
@@ -111,7 +113,7 @@ export default function Queue() {
         </div>
 
         <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: -8, marginBottom: 16 }}>
-          Arraste para reordenar — essa ordem é fixa e se repete a cada nova tentativa (não só na primeira).
+          Arraste para reordenar — define quem é discado primeiro agora. Depois de ligado, o contato entra na rotação normal (quem espera mais tempo vai primeiro), pra fila continuar circulando por todos.
         </p>
 
         {loading ? (
