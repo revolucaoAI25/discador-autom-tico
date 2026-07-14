@@ -6,6 +6,12 @@ const MAX_PER_HOUR   = 2;
 const MAX_DAYS       = 5;  // distinct days with no answer → hibernate
 const HIBERNATE_DAYS = 15;
 
+// These maintenance sweeps only ever need to do something once a day (when the
+// date rolls over). Running them as full-table UPDATEs on every single dial()
+// call adds two blocking DB round-trips before the call even starts ringing —
+// this in-memory cache skips them once they've already run for today.
+let lastMaintenanceDate = null;
+
 async function wakeUpHibernating() {
   const today = new Date().toISOString().slice(0, 10);
   await supabase
@@ -23,6 +29,14 @@ async function resetDailyCounters() {
     .update({ attempts_today: 0, last_call_date: today })
     .lt('last_call_date', today)
     .not('last_call_date', 'is', null);
+}
+
+async function runDailyMaintenanceIfNeeded() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (lastMaintenanceDate === today) return;
+  await wakeUpHibernating();
+  await resetDailyCounters();
+  lastMaintenanceDate = today;
 }
 
 // Atomically "claims" a contact for dialing by updating it only if its
@@ -52,9 +66,8 @@ export default async function handler(req, res) {
 
   const { contact_id } = req.body || {};
 
-  // Maintenance: wake hibernating + reset daily counters
-  await wakeUpHibernating();
-  await resetDailyCounters();
+  // Maintenance: wake hibernating + reset daily counters (only once per day)
+  await runDailyMaintenanceIfNeeded();
 
   let contact;
 
