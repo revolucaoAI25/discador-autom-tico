@@ -7,10 +7,14 @@ export default async function handler(req, res) {
 
   const { CallSid, CallStatus, CallDuration } = req.body;
 
+  // Respond with TwiML immediately — this endpoint fires the instant the lead
+  // answers, and Twilio won't bridge to the agent until it gets this response.
+  // The DB write is just bookkeeping, so it must not block that critical path.
   if (CallSid && CallStatus) {
     const update = { status: CallStatus };
     if (CallStatus === 'completed' && CallDuration) update.duration = parseInt(CallDuration);
-    await supabase.from('calls').update(update).eq('twilio_sid', CallSid);
+    supabase.from('calls').update(update).eq('twilio_sid', CallSid)
+      .then(({ error }) => { if (error) console.error('[webhook] update error:', error.message); });
   }
 
   res.setHeader('Content-Type', 'text/xml');
