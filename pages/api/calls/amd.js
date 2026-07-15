@@ -31,16 +31,20 @@ export default async function handler(req, res) {
     notes: `Auto-detectado: ${AnsweredBy}`,
   });
 
+  // Uses last_no_answer_date (not last_call_date) — dial.js already sets
+  // last_call_date to today at claim time, before the outcome is known, so
+  // comparing against it here would always match and never increment.
   const today         = new Date().toISOString().slice(0, 10);
-  const newDistinct   = (contact.distinct_days || 0) + (contact.last_call_date !== today ? 1 : 0);
+  const newDistinct   = (contact.distinct_days || 0) + (contact.last_no_answer_date !== today ? 1 : 0);
   const shouldHibernate = newDistinct >= MAX_DAYS;
   const hibernateUntil  = shouldHibernate
     ? new Date(Date.now() + HIBERNATE_DAYS * 86400000).toISOString().slice(0, 10)
     : null;
 
   await supabase.from('contacts').update({
-    status: shouldHibernate ? 'no_answer' : 'no_answer',
+    status: 'no_answer',
     distinct_days: newDistinct,
+    last_no_answer_date: today,
     hibernating_until: hibernateUntil,
   }).eq('id', call.contact_id);
 

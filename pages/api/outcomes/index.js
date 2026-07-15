@@ -34,15 +34,19 @@ export default async function handler(req, res) {
     if (result === 'callback' && callback_at)  contactUpdate.callback_at  = callback_at;
     if (result === 'scheduled' && scheduled_at) contactUpdate.scheduled_at = scheduled_at;
 
-    // Track distinct days for no-answer results
+    // Track distinct days for no-answer results. Uses last_no_answer_date
+    // (not last_call_date) — dial.js already sets last_call_date to today the
+    // moment it claims the contact, before the outcome is known, so comparing
+    // against it here would always be a same-day match and never increment.
     if (result === 'no_answer' || result === 'voicemail') {
       const { data: contact } = await supabase
-        .from('contacts').select('distinct_days, last_call_date').eq('id', contact_id).single();
+        .from('contacts').select('distinct_days, last_no_answer_date').eq('id', contact_id).single();
 
       if (contact) {
         const today       = new Date().toISOString().slice(0, 10);
-        const newDistinct = (contact.distinct_days || 0) + (contact.last_call_date !== today ? 1 : 0);
-        contactUpdate.distinct_days = newDistinct;
+        const newDistinct = (contact.distinct_days || 0) + (contact.last_no_answer_date !== today ? 1 : 0);
+        contactUpdate.distinct_days       = newDistinct;
+        contactUpdate.last_no_answer_date = today;
 
         if (newDistinct >= MAX_DAYS) {
           contactUpdate.hibernating_until = new Date(Date.now() + HIBERNATE_DAYS * 86400000).toISOString().slice(0, 10);
