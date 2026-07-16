@@ -133,9 +133,13 @@ export default async function handler(req, res) {
       statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
       statusCallbackMethod: 'POST',
       // asyncAmd:true is what actually makes AMD non-blocking — without it,
-      // Twilio waits 3-5s to decide human-vs-machine BEFORE executing <Dial>,
-      // delaying every single call (even real human answers) by that much.
-      machineDetection: 'Enable',
+      // Twilio waits several seconds to decide human-vs-machine BEFORE
+      // executing <Dial>, delaying every single call (even real human
+      // answers) by that much. DetectMessageEnd (instead of the faster
+      // 'Enable') waits for more audio before deciding, which cuts down on
+      // false positives that were hanging up on real humans mid-conversation
+      // — safe to use now that AMD no longer blocks the connection.
+      machineDetection: 'DetectMessageEnd',
       asyncAmd: true,
       asyncAmdStatusCallback: `${baseUrl}/api/calls/amd`,
       asyncAmdStatusCallbackMethod: 'POST',
