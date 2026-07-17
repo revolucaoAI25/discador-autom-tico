@@ -22,7 +22,10 @@ export default async function handler(req, res) {
 
   const { data, error } = await supabase
     .from('contacts')
-    .insert({ name: name.trim(), phone: normalizedPhone, company: company?.trim() || '' })
+    // Contatos manuais raramente preenchem "Empresa" (campo opcional) — sem
+    // isso, o disparo de WhatsApp (que usa contact.company) sairia sempre
+    // vazio. Usa o nome digitado como fallback quando empresa não é informada.
+    .insert({ name: name.trim(), phone: normalizedPhone, company: company?.trim() || name.trim() })
     .select().single();
 
   if (error) return res.status(500).json({ error: error.message });
