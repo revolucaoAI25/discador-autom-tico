@@ -6,10 +6,6 @@ function normalizePhone(raw) {
   return '55' + digits;
 }
 
-function toStartCase(name) {
-  return (name || '').split(' ')[0].charAt(0).toUpperCase() +
-    (name || '').split(' ')[0].slice(1).toLowerCase();
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -26,7 +22,7 @@ export default async function handler(req, res) {
   if (!contact)  return res.status(404).json({ error: 'Contato não encontrado' });
 
   const phone = normalizePhone(contact.phone);
-  const name  = toStartCase(contact.lead_name);
+  const name  = contact.company || '';
 
   try {
     const r = await fetch(dispatch.url, {

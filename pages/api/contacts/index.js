@@ -21,26 +21,62 @@ function normalizePhone(raw) {
   return raw;
 }
 
-const PHONE_RE = /\(\d{2}\)\s?\d{4,5}-\d{4}/;
+// Matches phone numbers with or without parentheses/hyphens: (11) 99999-9999,
+// 11999999999, 11 99999 9999, etc. Kept loose since scrapers vary a lot.
+const PHONE_RE = /\(?\d{2}\)?[\s.-]?\d{4,5}[\s.-]?\d{4}/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const CNPJ_RE  = /\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/;
+const WEBSITE_RE = /^(https?:\/\/|www\.)/i;
 
-// Common Google Maps scraper export with no header row:
-// Name, Phone, (blank), Status, Address, (blank x3), Website, Maps URL, Rating, Reviews, (blank), Category, (blank), Subcategory
+const UF_LIST = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS',
+  'MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
+
+// Google Maps / scraper exports ship with no header row and wildly varying
+// column layouts. Instead of relying on fixed indices, scan every cell and
+// pick it out by what it looks like (phone, email, website, CNPJ, UF...).
 function extractPositionalRow(cols) {
-  const name    = (cols[0] || '').trim();
-  const phone1  = (cols[1] || '').trim();
-  const address = (cols[4] || '').trim();
-  const website = (cols[8] || '').trim();
-  const category    = (cols[13] || '').trim();
-  const subcategory = (cols[15] || '').trim();
+  const cells = cols.map((c) => (c || '').trim());
 
-  const m = address.match(/,\s*([^,]+?)\s*-\s*([A-Z]{2}),\s*\d{5}-?\d{3},?\s*Brasil\s*$/);
-  const city  = m ? m[1].trim() : '';
-  const state = m ? m[2].trim() : '';
+  const phoneIdxs = [];
+  cells.forEach((c, i) => { if (PHONE_RE.test(c) && !EMAIL_RE.test(c)) phoneIdxs.push(i); });
+  const phone1 = phoneIdxs[0] !== undefined ? cells[phoneIdxs[0]] : '';
+  const phone2 = phoneIdxs[1] !== undefined ? cells[phoneIdxs[1]] : '';
+
+  const email   = cells.find((c) => EMAIL_RE.test(c)) || '';
+  const website = cells.find((c) => WEBSITE_RE.test(c) || /\.(com|com\.br|net|br)\b/i.test(c)) || '';
+  const cnpj    = cells.find((c) => CNPJ_RE.test(c)) || '';
+
+  // UF as its own cell (new format) — city is usually the cell right before it.
+  let city = '', state = '';
+  const ufIdx = cells.findIndex((c) => UF_LIST.includes(c.toUpperCase()));
+  if (ufIdx !== -1) {
+    state = cells[ufIdx].toUpperCase();
+    city  = cells[ufIdx - 1] || '';
+  } else {
+    // Fallback: old Google Maps format with city/state embedded in a full address.
+    const address = cells.find((c) => /,\s*[^,]+?\s*-\s*[A-Z]{2},\s*\d{5}-?\d{3}/.test(c)) || '';
+    const m = address.match(/,\s*([^,]+?)\s*-\s*([A-Z]{2}),\s*\d{5}-?\d{3},?\s*Brasil\s*$/);
+    if (m) { city = m[1].trim(); state = m[2].trim(); }
+  }
+
+  const address = cells.find((c) => /,\s*[^,]+?\s*-\s*[A-Z]{2},\s*\d{5}-?\d{3}/.test(c)) || '';
+
+  // Name: first cell that isn't a phone/email/website/CNPJ/UF and isn't blank.
+  const skip = new Set([...phoneIdxs, cells.indexOf(email), cells.indexOf(website), cells.indexOf(cnpj), ufIdx]);
+  const nameIdx = cells.findIndex((c, i) => c && !skip.has(i));
+  const name = nameIdx !== -1 ? cells[nameIdx] : '';
+
+  // Company/category heuristic: a reasonably long text cell that isn't the
+  // name, address, or any of the fields already captured above.
+  const usedIdxs = new Set([...skip, nameIdx, cells.indexOf(address)]);
+  const company = cells.find((c, i) =>
+    !usedIdxs.has(i) && c.length > 2 && c.length < 60 &&
+    /[a-zA-ZÀ-ÿ]/.test(c) && !/^\d+$/.test(c)
+  ) || '';
 
   return {
-    name, lead_name: '', phone1, phone2: '',
-    company: subcategory || category,
-    email: '', address, city, state, website, cnpj: '',
+    name, lead_name: '', phone1, phone2,
+    company, email, address, city, state, website, cnpj,
     _cityState: [city, state].filter(Boolean).join('/'),
   };
 }
