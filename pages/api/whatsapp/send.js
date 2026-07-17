@@ -32,7 +32,7 @@ export default async function handler(req, res) {
     });
     if (!r.ok) {
       const txt = await r.text();
-      return res.status(502).json({ error: `Chatflux retornou ${r.status}: ${txt}` });
+      return res.status(502).json({ error: `Webhook retornou ${r.status}: ${txt}` });
     }
     return res.json({ ok: true });
   } catch (e) {

@@ -90,7 +90,7 @@ export default function Settings() {
               required
             />
             <input
-              placeholder="URL do webhook Chatflux"
+              placeholder="URL do seu webhook"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               required
