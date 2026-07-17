@@ -1,8 +1,8 @@
 import { supabase } from '../../../lib/supabase';
 import { getClient } from '../../../lib/twilio';
 
-const MAX_PER_DAY    = 4;
-const MAX_PER_HOUR   = 2;
+const MAX_PER_DAY    = 6;
+const MAX_PER_HOUR   = 4;
 const MAX_DAYS       = 5;  // distinct days with no answer → hibernate
 const HIBERNATE_DAYS = 15;
 
@@ -16,7 +16,10 @@ async function wakeUpHibernating() {
   const today = new Date().toISOString().slice(0, 10);
   await supabase
     .from('contacts')
-    .update({ status: 'pending', hibernating_until: null, distinct_days: 0, attempts_today: 0 })
+    .update({
+      status: 'pending', hibernating_until: null, distinct_days: 0, attempts_today: 0,
+      immediate_retry_pending: false, retry_used_date: null,
+    })
     .lte('hibernating_until', today)
     .not('hibernating_until', 'is', null);
 }
@@ -44,17 +47,22 @@ async function runDailyMaintenanceIfNeeded() {
 // and pick the same top-of-queue contact at the same time, only one of these
 // conditional updates succeeds — the other gets 0 rows back and moves on to
 // the next candidate instead of both dialing the same person.
-async function claimContact(c) {
+async function claimContact(c, { isRetry = false } = {}) {
   const today = new Date().toISOString().slice(0, 10);
-  let query = supabase
-    .from('contacts')
-    .update({
-      last_call_at:   new Date().toISOString(),
-      last_call_date: today,
-      attempts_today: (c.attempts_today || 0) + 1,
-    })
-    .eq('id', c.id);
+  const updateFields = {
+    last_call_at:   new Date().toISOString(),
+    last_call_date: today,
+    attempts_today: (c.attempts_today || 0) + 1,
+    // Claiming always consumes any pending immediate retry — whether this IS
+    // the retry call, or a fresh first attempt on a contact that happened to
+    // still have one flagged (e.g. manually re-dialed before it fired).
+    immediate_retry_pending: false,
+  };
+  // retry_used_date marks that this contact already got its one same-day
+  // immediate retry, so the no-answer handlers below don't schedule another.
+  if (isRetry) updateFields.retry_used_date = today;
 
+  let query = supabase.from('contacts').update(updateFields).eq('id', c.id);
   query = c.last_call_at ? query.eq('last_call_at', c.last_call_at) : query.is('last_call_at', null);
 
   const { data } = await query.select();
@@ -76,41 +84,68 @@ export default async function handler(req, res) {
       .from('contacts').select('*').eq('id', contact_id).single();
     if (data && await claimContact(data)) contact = data;
   } else {
-    // Find next eligible contact in queue
-    const { data: candidates } = await supabase
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+    // Immediate-retry contacts (didn't answer on the first attempt this
+    // round) jump the line ahead of the normal queue order, so a lead gets a
+    // second shot right away instead of waiting a full lap of the queue.
+    const { data: retryCandidates } = await supabase
       .from('contacts')
       .select('*')
-      .in('status', ['pending', 'no_answer'])
+      .eq('immediate_retry_pending', true)
       .is('hibernating_until', null)
       .lt('attempts_today', MAX_PER_DAY)
-      // Fair round-robin: whoever waited longest (or was never called) goes
-      // next. queue_order defines the FIXED SEQUENCE for the round — it's the
-      // tie-breaker whenever last_call_at ties (which is every contact at the
-      // very start, and, in practice, stays true round after round since each
-      // pass dials everyone in the same relative sequence before anyone gets
-      // a repeat). This is what makes it loop through the manual order one
-      // round at a time — top 10 first, then everyone else, then back to the
-      // top 10 — instead of the top 10 hogging repeat attempts before the
-      // rest of the queue is ever reached. It also naturally resumes wherever
-      // you left off, since whoever hasn't been called yet always sorts first.
       .order('last_call_at', { ascending: true, nullsFirst: true })
-      .order('queue_order', { ascending: true, nullsFirst: false })
-      .limit(1000);
+      .limit(50);
 
-    if (candidates?.length) {
-      const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      for (const c of candidates) {
+    if (retryCandidates?.length) {
+      for (const c of retryCandidates) {
         const { count } = await supabase
           .from('calls')
           .select('id', { count: 'exact', head: true })
           .eq('contact_id', c.id)
           .gte('started_at', hourAgo);
         if ((count || 0) >= MAX_PER_HOUR) continue;
+        if (await claimContact(c, { isRetry: true })) { contact = c; break; }
+      }
+    }
 
-        // Try to claim this candidate; if another concurrent request already
-        // grabbed it (its last_call_at moved), skip to the next one instead
-        // of both requests dialing the same contact.
-        if (await claimContact(c)) { contact = c; break; }
+    if (!contact) {
+      // Find next eligible contact in queue
+      const { data: candidates } = await supabase
+        .from('contacts')
+        .select('*')
+        .in('status', ['pending', 'no_answer'])
+        .is('hibernating_until', null)
+        .lt('attempts_today', MAX_PER_DAY)
+        // Fair round-robin: whoever waited longest (or was never called) goes
+        // next. queue_order defines the FIXED SEQUENCE for the round — it's the
+        // tie-breaker whenever last_call_at ties (which is every contact at the
+        // very start, and, in practice, stays true round after round since each
+        // pass dials everyone in the same relative sequence before anyone gets
+        // a repeat). This is what makes it loop through the manual order one
+        // round at a time — top 10 first, then everyone else, then back to the
+        // top 10 — instead of the top 10 hogging repeat attempts before the
+        // rest of the queue is ever reached. It also naturally resumes wherever
+        // you left off, since whoever hasn't been called yet always sorts first.
+        .order('last_call_at', { ascending: true, nullsFirst: true })
+        .order('queue_order', { ascending: true, nullsFirst: false })
+        .limit(1000);
+
+      if (candidates?.length) {
+        for (const c of candidates) {
+          const { count } = await supabase
+            .from('calls')
+            .select('id', { count: 'exact', head: true })
+            .eq('contact_id', c.id)
+            .gte('started_at', hourAgo);
+          if ((count || 0) >= MAX_PER_HOUR) continue;
+
+          // Try to claim this candidate; if another concurrent request already
+          // grabbed it (its last_call_at moved), skip to the next one instead
+          // of both requests dialing the same contact.
+          if (await claimContact(c)) { contact = c; break; }
+        }
       }
     }
   }
@@ -156,9 +191,11 @@ export default async function handler(req, res) {
     // would fail (e.g. geo-permission errors) — undo that so a failed call
     // doesn't burn one of its daily attempts for nothing.
     await supabase.from('contacts').update({
-      last_call_at:   contact.last_call_at,
-      last_call_date: contact.last_call_date,
-      attempts_today: contact.attempts_today,
+      last_call_at:             contact.last_call_at,
+      last_call_date:           contact.last_call_date,
+      attempts_today:           contact.attempts_today,
+      immediate_retry_pending:  contact.immediate_retry_pending,
+      retry_used_date:          contact.retry_used_date,
     }).eq('id', contact.id);
     res.status(500).json({ error: e.message });
   }

@@ -40,7 +40,7 @@ export default async function handler(req, res) {
     // against it here would always be a same-day match and never increment.
     if (result === 'no_answer' || result === 'voicemail') {
       const { data: contact } = await supabase
-        .from('contacts').select('distinct_days, last_no_answer_date').eq('id', contact_id).single();
+        .from('contacts').select('distinct_days, last_no_answer_date, retry_used_date').eq('id', contact_id).single();
 
       if (contact) {
         const today       = new Date().toISOString().slice(0, 10);
@@ -48,9 +48,15 @@ export default async function handler(req, res) {
         contactUpdate.distinct_days       = newDistinct;
         contactUpdate.last_no_answer_date = today;
 
-        if (newDistinct >= MAX_DAYS) {
+        const shouldHibernate = newDistinct >= MAX_DAYS;
+        if (shouldHibernate) {
           contactUpdate.hibernating_until = new Date(Date.now() + HIBERNATE_DAYS * 86400000).toISOString().slice(0, 10);
         }
+
+        // One same-day immediate retry per contact — skip if already used or
+        // if this contact is being hibernated anyway.
+        const alreadyRetriedToday = contact.retry_used_date === today;
+        contactUpdate.immediate_retry_pending = !alreadyRetriedToday && !shouldHibernate;
       }
     }
 

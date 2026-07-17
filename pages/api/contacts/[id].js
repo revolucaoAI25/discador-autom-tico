@@ -39,12 +39,14 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid status' });
     }
     if (updates.status === 'pending') {
-      updates.attempts_today      = 0;
-      updates.last_call_at        = null;
-      updates.last_call_date      = null;
-      updates.last_no_answer_date = null;
-      updates.distinct_days       = 0;
-      updates.hibernating_until   = null;
+      updates.attempts_today          = 0;
+      updates.last_call_at            = null;
+      updates.last_call_date          = null;
+      updates.last_no_answer_date     = null;
+      updates.distinct_days           = 0;
+      updates.hibernating_until       = null;
+      updates.immediate_retry_pending = false;
+      updates.retry_used_date         = null;
     }
     const { error } = await supabase.from('contacts').update(updates).eq('id', id);
     if (error) return res.status(500).json({ error: error.message });
