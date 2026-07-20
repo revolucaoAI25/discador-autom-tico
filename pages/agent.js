@@ -155,6 +155,17 @@ export default function Agent() {
     if (outcomeSaved.current) return;
     if (callPhaseRef.current === 'active') return;
     outcomeSaved.current = true;
+
+    // The UI is giving up on this call (timeout or a terminal status seen via
+    // polling) — that's an assumption, not a guarantee the call actually ended
+    // on Twilio's side. Force it closed instead of trusting it already did:
+    // otherwise the PSTN leg can stay silently bridged to the softphone in the
+    // background (the agent hears it, but the screen has already moved on to
+    // "discando próximo…") and the in-flight guard on /api/calls/dial then
+    // blocks the next real call because this one never got a terminal status.
+    if (cId) fetch(`/api/calls/${cId}/hangup`, { method: 'POST' });
+    softphoneRef.current?.hangup();
+
     const name = contact?.name;
     if (contactId && !skipOutcome) {
       fetch('/api/outcomes', {
@@ -239,6 +250,12 @@ export default function Agent() {
 
   function handleOutcomeSaved() {
     outcomeSaved.current = true;
+    // The agent can submit the outcome form without having clicked "Desligar"
+    // first — force the call closed here too, for the same reason as
+    // endUnansweredCall: never let the UI move on while assuming a call
+    // already ended without actually making sure of it.
+    if (callId) fetch(`/api/calls/${callId}/hangup`, { method: 'POST' });
+    softphoneRef.current?.hangup();
     // Clear prev panel if it was the current call
     setPrevContact(null);
     setPrevCallId(null);
