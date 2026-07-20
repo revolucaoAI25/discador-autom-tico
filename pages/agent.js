@@ -176,7 +176,8 @@ export default function Agent() {
     setBanner(null);
     setDialing(true);
     try {
-      const body = contactId ? JSON.stringify({ contact_id: contactId }) : '{}';
+      const agent_identity = softphoneRef.current?.identity || undefined;
+      const body = JSON.stringify({ ...(contactId ? { contact_id: contactId } : {}), agent_identity });
       const res  = await fetch('/api/calls/dial', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
       const data = await res.json();
       if (data.error) {

@@ -1,7 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 
-async function fetchToken() {
-  const res = await fetch('/api/token');
+// Every browser session gets its own Twilio Client identity — persisted per
+// TAB (sessionStorage, not localStorage) so a reload keeps working mid-call
+// but a different tab/device never collides with this one. Without this, all
+// sessions shared one fixed identity and Twilio would ring EVERY connection
+// registered under it — including a stale one left behind by a crashed tab,
+// a dropped wifi, or a sleeping laptop — causing a real call to bridge into
+// the wrong (or an extra) browser session at the same time.
+function getSessionIdentity() {
+  if (typeof window === 'undefined') return 'agent';
+  const KEY = 'discador_agent_identity';
+  let id = window.sessionStorage.getItem(KEY);
+  if (!id) {
+    id = `agent-${(crypto.randomUUID?.() || Math.random().toString(36).slice(2)).replace(/-/g, '').slice(0, 20)}`;
+    window.sessionStorage.setItem(KEY, id);
+  }
+  return id;
+}
+
+async function fetchToken(identity) {
+  const res = await fetch(`/api/token?identity=${encodeURIComponent(identity)}`);
   const { token } = await res.json();
   return token;
 }
@@ -10,14 +28,16 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
   const deviceRef   = useRef(null);
   const callRef     = useRef(null);
   const acceptedRef = useRef(false);
+  const identityRef = useRef(null);
   const [status, setStatus] = useState('loading');
   const [error, setError]   = useState(null);
 
-  // Expose hangup to parent via controlRef
+  // Expose hangup + this session's identity to parent via controlRef
   useEffect(() => {
     if (controlRef) {
       controlRef.current = {
         hangup: () => callRef.current?.disconnect(),
+        get identity() { return identityRef.current; },
       };
     }
   }, [controlRef]);
@@ -28,7 +48,9 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
     async function init() {
       try {
         const { Device } = await import('@twilio/voice-sdk');
-        const token = await fetchToken();
+        const identity = getSessionIdentity();
+        identityRef.current = identity;
+        const token = await fetchToken(identity);
         const device = new Device(token, { logLevel: 1, edge: 'sao-paulo' });
         deviceRef.current = device;
 

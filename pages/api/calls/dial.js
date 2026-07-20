@@ -89,7 +89,11 @@ async function hasCallInFlight() {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { contact_id } = req.body || {};
+  const { contact_id, agent_identity } = req.body || {};
+  const SAFE_IDENTITY_RE = /^[A-Za-z0-9_-]{1,64}$/;
+  const identity = SAFE_IDENTITY_RE.test(agent_identity || '')
+    ? agent_identity
+    : (process.env.TWILIO_CLIENT_IDENTITY || 'agent');
 
   // Maintenance: wake hibernating + reset daily counters (only once per day)
   await runDailyMaintenanceIfNeeded();
@@ -206,7 +210,7 @@ export default async function handler(req, res) {
 
     const { data: callRow } = await supabase
       .from('calls')
-      .insert({ contact_id: contact.id, twilio_sid: call.sid })
+      .insert({ contact_id: contact.id, twilio_sid: call.sid, agent_identity: identity })
       .select().single();
 
     res.json({ call_id: callRow.id, twilio_sid: call.sid, contact });
