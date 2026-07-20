@@ -1,8 +1,11 @@
 import { supabase } from '../../../lib/supabase';
 import { getClient } from '../../../lib/twilio';
 
-const MAX_PER_DAY    = 6;
-const MAX_PER_HOUR   = 4;
+// Temporarily reverted to the pre-retry pace (was 6/4 with immediate retry
+// enabled) while we validate the concurrency fixes with lower call volume —
+// see immediate_retry_pending being force-disabled in amd.js/outcomes below.
+const MAX_PER_DAY    = 4;
+const MAX_PER_HOUR   = 2;
 const MAX_DAYS       = 5;  // distinct days with no answer → hibernate
 const HIBERNATE_DAYS = 15;
 

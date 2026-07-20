@@ -41,8 +41,9 @@ export default async function handler(req, res) {
     ? new Date(Date.now() + HIBERNATE_DAYS * 86400000).toISOString().slice(0, 10)
     : null;
 
-  // Only schedule an immediate retry once per day per contact — if it already
-  // used its retry today, this no-answer just goes back into the normal queue.
+  // Immediate retry temporarily disabled while we validate the concurrency
+  // fixes at the lower call pace — always false for now, easy to flip back.
+  const IMMEDIATE_RETRY_ENABLED = false;
   const alreadyRetriedToday = contact.retry_used_date === today;
 
   await supabase.from('contacts').update({
@@ -50,7 +51,7 @@ export default async function handler(req, res) {
     distinct_days: newDistinct,
     last_no_answer_date: today,
     hibernating_until: hibernateUntil,
-    immediate_retry_pending: !alreadyRetriedToday && !shouldHibernate,
+    immediate_retry_pending: IMMEDIATE_RETRY_ENABLED && !alreadyRetriedToday && !shouldHibernate,
   }).eq('id', call.contact_id);
 
   try {

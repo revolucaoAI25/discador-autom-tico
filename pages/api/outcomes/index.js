@@ -53,10 +53,11 @@ export default async function handler(req, res) {
           contactUpdate.hibernating_until = new Date(Date.now() + HIBERNATE_DAYS * 86400000).toISOString().slice(0, 10);
         }
 
-        // One same-day immediate retry per contact — skip if already used or
-        // if this contact is being hibernated anyway.
+        // Immediate retry temporarily disabled while we validate the
+        // concurrency fixes at the lower call pace — always false for now.
+        const IMMEDIATE_RETRY_ENABLED = false;
         const alreadyRetriedToday = contact.retry_used_date === today;
-        contactUpdate.immediate_retry_pending = !alreadyRetriedToday && !shouldHibernate;
+        contactUpdate.immediate_retry_pending = IMMEDIATE_RETRY_ENABLED && !alreadyRetriedToday && !shouldHibernate;
       }
     }
 
