@@ -211,10 +211,20 @@ export default async function handler(req, res) {
       asyncAmdStatusCallbackMethod: 'POST',
     });
 
-    const { data: callRow } = await supabase
+    const { data: callRow, error: insertError } = await supabase
       .from('calls')
       .insert({ contact_id: contact.id, twilio_sid: call.sid, agent_identity: identity })
       .select().single();
+
+    if (insertError || !callRow) {
+      // The real Twilio call was already placed above — if we fail to record
+      // it here, it would otherwise keep ringing/bridging completely
+      // untracked (no DB row means our in-flight guard, hangup endpoint and
+      // the UI all have no way to ever know it exists). Kill it immediately
+      // instead of leaving an orphaned live call running in the background.
+      try { await client.calls(call.sid).update({ status: 'completed' }); } catch (_) {}
+      throw insertError || new Error('Falha ao registrar a ligação no banco');
+    }
 
     res.json({ call_id: callRow.id, twilio_sid: call.sid, contact });
   } catch (e) {
