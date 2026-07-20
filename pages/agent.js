@@ -112,28 +112,26 @@ export default function Agent() {
     let ringSeconds = 0;
     pollRef.current = setInterval(async () => {
       ringSeconds += POLL_MS / 1000;
-
-      if (ringSeconds >= RING_TIMEOUT_S && callPhaseRef.current === 'ringing') {
-        stopPolling();
-        endUnansweredCall(cId, contactId, false);
-        return;
-      }
+      const timedOut = ringSeconds >= RING_TIMEOUT_S && callPhaseRef.current === 'ringing';
 
       try {
+        // Always re-check the real status before acting on the ring timeout —
+        // it's based on the last tick's phase, so without a fresh check here
+        // a lead answering in the exact same instant the 40s elapse could get
+        // force-hung-up as "não atendeu" a split second after actually answering.
         const r = await fetch(`/api/calls/${cId}/status`);
         const d = await r.json();
-        if (!d.status) return;
-
-        // AMD (or anything else server-side) already recorded an outcome for
-        // this call (e.g. voicemail detected) — don't fight it, just end locally.
-        if (d.hasOutcome && callPhaseRef.current !== 'active') {
-          stopPolling();
-          endUnansweredCall(cId, contactId, true);
-          return;
-        }
+        if (!d.status) return; // no confirmed status yet — never act on a stale timeout without one
 
         if (d.status === 'in-progress' && callPhaseRef.current === 'ringing') {
           setCallPhase('connecting');
+        }
+
+        if (d.hasOutcome && callPhaseRef.current !== 'active') {
+          // AMD (or anything else server-side) already recorded an outcome for
+          // this call (e.g. voicemail detected) — don't fight it, just end locally.
+          stopPolling();
+          endUnansweredCall(cId, contactId, true);
         } else if (FAILED_STATUSES.includes(d.status) && callPhaseRef.current !== 'active') {
           stopPolling();
           endUnansweredCall(cId, contactId, false);
@@ -141,9 +139,15 @@ export default function Agent() {
           // Ended before the agent leg ever bridged
           stopPolling();
           endUnansweredCall(cId, contactId, false);
+        } else if (timedOut && d.status !== 'in-progress' && callPhaseRef.current === 'ringing') {
+          // Confirmed still just ringing (not answered) after a fresh check —
+          // safe to give up now.
+          stopPolling();
+          endUnansweredCall(cId, contactId, false);
         }
       } catch (_) {
-        // transient network error — try again next tick
+        // Status check failed — do NOT force-hangup on a stale timeout without
+        // confirming first; just retry next tick.
       }
     }, POLL_MS);
   }
