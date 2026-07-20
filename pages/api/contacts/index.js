@@ -22,7 +22,10 @@ function normalizePhone(raw) {
 }
 
 // Matches phone numbers with or without parentheses/hyphens: (11) 99999-9999,
-// 11999999999, 11 99999 9999, etc. Kept loose since scrapers vary a lot.
+// 11999999999, 11 99999 9999, etc. Kept loose since scrapers vary a lot —
+// but a loose regex alone will also match a *substring* inside an unrelated
+// long number (a CNPJ, a coordinate, an ID), so looksLikePhone below also
+// checks the digit COUNT of the whole cell to rule those out.
 const PHONE_RE = /\(?\d{2}\)?[\s.-]?\d{4,5}[\s.-]?\d{4}/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CNPJ_RE  = /\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/;
@@ -31,6 +34,15 @@ const WEBSITE_RE = /^(https?:\/\/|www\.)/i;
 const UF_LIST = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS',
   'MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
+// A real BR phone has 10-11 digits (with DDD) or 12-13 with the 55 country
+// code. Anything outside that range is some other number that happened to
+// contain a phone-shaped substring (e.g. a 14-digit CNPJ, a lat/long, an ID).
+function looksLikePhone(cell) {
+  if (!PHONE_RE.test(cell) || EMAIL_RE.test(cell)) return false;
+  const digits = cell.replace(/\D/g, '');
+  return digits.length >= 10 && digits.length <= 13;
+}
+
 // Google Maps / scraper exports ship with no header row and wildly varying
 // column layouts. Instead of relying on fixed indices, scan every cell and
 // pick it out by what it looks like (phone, email, website, CNPJ, UF...).
@@ -38,7 +50,7 @@ function extractPositionalRow(cols) {
   const cells = cols.map((c) => (c || '').trim());
 
   const phoneIdxs = [];
-  cells.forEach((c, i) => { if (PHONE_RE.test(c) && !EMAIL_RE.test(c)) phoneIdxs.push(i); });
+  cells.forEach((c, i) => { if (looksLikePhone(c)) phoneIdxs.push(i); });
   const phone1 = phoneIdxs[0] !== undefined ? cells[phoneIdxs[0]] : '';
   const phone2 = phoneIdxs[1] !== undefined ? cells[phoneIdxs[1]] : '';
 
@@ -151,7 +163,7 @@ function handlePost(req, res) {
       // Some scrapers (e.g. Google Maps exports) ship with no header row at
       // all — the first "row" is already data. Detect that by checking if the
       // first row already looks like a phone number instead of a column name.
-      const headerless = rawRows.length > 0 && rawRows[0].some((cell) => PHONE_RE.test(cell || ''));
+      const headerless = rawRows.length > 0 && rawRows[0].some((cell) => looksLikePhone(cell || ''));
 
       let records;
       if (headerless) {
