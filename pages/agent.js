@@ -179,7 +179,13 @@ export default function Agent() {
       const body = contactId ? JSON.stringify({ contact_id: contactId }) : '{}';
       const res  = await fetch('/api/calls/dial', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
       const data = await res.json();
-      if (data.error) { setError(data.error); return; }
+      if (data.error) {
+        setError(data.error);
+        // A 409 (call already in flight) is transient — retry shortly instead
+        // of leaving auto-dial permanently stuck on the error.
+        if (res.status === 409 && !contactId && autoEnabledRef.current) startCountdown();
+        return;
+      }
       setContact(data.contact);
       setCallId(data.call_id);
       setElapsed(0);

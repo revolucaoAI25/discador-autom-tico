@@ -54,6 +54,14 @@ export default function Softphone({ controlRef, onCallRinging, onCallConnected, 
         });
 
         device.on('incoming', (call) => {
+          // Never bridge a second call on top of one already in progress — if
+          // this ever fires while callRef is still set, it's a concurrency bug
+          // upstream (e.g. two calls placed for the same agent identity) and
+          // silently accepting it would mix two leads' audio into one call.
+          if (callRef.current) {
+            call.reject();
+            return;
+          }
           callRef.current     = call;
           acceptedRef.current = false;
           setStatus('ringing');

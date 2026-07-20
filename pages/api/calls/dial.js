@@ -69,6 +69,23 @@ async function claimContact(c, { isRetry = false } = {}) {
   return !!(data && data.length);
 }
 
+const TERMINAL_STATUSES = ['completed', 'busy', 'no-answer', 'failed', 'canceled'];
+// Only one PSTN leg should ever be bridging to the agent's softphone at a
+// time. This window bounds how long a call can be considered "in flight"
+// before we treat it as stale (e.g. a webhook that never arrived) and allow
+// dialing again anyway — it's comfortably above RING_TIMEOUT_S on the client.
+const IN_FLIGHT_WINDOW_MS = 3 * 60 * 1000;
+
+async function hasCallInFlight() {
+  const since = new Date(Date.now() - IN_FLIGHT_WINDOW_MS).toISOString();
+  const { data } = await supabase
+    .from('calls')
+    .select('id, status')
+    .gte('started_at', since)
+    .limit(20);
+  return (data || []).some((c) => !TERMINAL_STATUSES.includes(c.status));
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
@@ -76,6 +93,13 @@ export default async function handler(req, res) {
 
   // Maintenance: wake hibernating + reset daily counters (only once per day)
   await runDailyMaintenanceIfNeeded();
+
+  // Guard against two real PSTN calls ringing the same softphone identity at
+  // once (e.g. two browser tabs both auto-dialing, or a stray double-trigger)
+  // — that's what was causing crossed audio / the wrong lead answering.
+  if (await hasCallInFlight()) {
+    return res.status(409).json({ error: 'Já existe uma ligação em andamento. Aguarde ela terminar antes de discar outra.' });
+  }
 
   let contact;
 
