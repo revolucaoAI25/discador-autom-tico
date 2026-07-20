@@ -91,6 +91,8 @@ export default function Contacts() {
   const [search, setSearch]       = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState(null);
+  const [lastImportBatchId, setLastImportBatchId] = useState(null);
+  const [undoing, setUndoing] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selected, setSelected]   = useState(() => new Set());
   const fileRef = useRef();
@@ -145,13 +147,47 @@ export default function Contacts() {
       ? { ok: false, text: data.error }
       : { ok: true,  text: `${data.inserted} contato${data.inserted !== 1 ? 's' : ''} importado${data.inserted !== 1 ? 's' : ''}` }
     );
+    setLastImportBatchId(data.error ? null : data.import_batch_id || null);
     fileRef.current.value = '';
     load();
+  }
+
+  async function handleUndoImport() {
+    if (!lastImportBatchId) return;
+    if (!confirm('Desfazer a última importação? Todos os contatos dela serão removidos.')) return;
+    setUndoing(true);
+    try {
+      const res  = await fetch('/api/contacts/undo-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ import_batch_id: lastImportBatchId }),
+      });
+      const data = await res.json();
+      setUploadMsg(data.error
+        ? { ok: false, text: data.error }
+        : { ok: true, text: `${data.deleted} contato${data.deleted !== 1 ? 's' : ''} removido${data.deleted !== 1 ? 's' : ''}` }
+      );
+      setLastImportBatchId(null);
+      load();
+    } finally {
+      setUndoing(false);
+    }
   }
 
   async function handleDelete(id) {
     if (!confirm('Deletar este contato?')) return;
     await fetch(`/api/contacts/${id}`, { method: 'DELETE' });
+    load();
+  }
+
+  async function handleCleanupBadPhones() {
+    if (!confirm('Remover todos os contatos com telefone em formato inválido (ex: números gigantes vindos de bug de importação)?')) return;
+    const res  = await fetch('/api/contacts/cleanup-bad-phones', { method: 'POST' });
+    const data = await res.json();
+    setUploadMsg(data.error
+      ? { ok: false, text: data.error }
+      : { ok: true, text: `${data.deleted} contato${data.deleted !== 1 ? 's' : ''} com telefone inválido removido${data.deleted !== 1 ? 's' : ''}` }
+    );
     load();
   }
 
@@ -170,6 +206,11 @@ export default function Contacts() {
                 {uploadMsg.ok ? '✓' : '✕'} {uploadMsg.text}
               </span>
             )}
+            {lastImportBatchId && (
+              <button className="btn-secondary" onClick={handleUndoImport} disabled={undoing} style={{ padding: '6px 12px', fontSize: 12 }}>
+                {undoing ? 'Desfazendo…' : 'Desfazer importação'}
+              </button>
+            )}
             {selected.size > 0 && (
               <button className="btn-danger" onClick={handleBulkDelete}>
                 Excluir {selected.size} selecionado{selected.size !== 1 ? 's' : ''}
@@ -177,6 +218,9 @@ export default function Contacts() {
             )}
             <button className="btn-secondary" onClick={() => setShowAddModal(true)}>
               + Adicionar contato
+            </button>
+            <button className="btn-secondary" onClick={handleCleanupBadPhones}>
+              Limpar telefones inválidos
             </button>
             <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleUpload} />
             <button className="btn-primary" onClick={() => fileRef.current.click()} disabled={uploading}>

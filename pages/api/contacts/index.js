@@ -172,6 +172,10 @@ function handlePost(req, res) {
         records = parse(content, { columns: true, skip_empty_lines: true, trim: true });
       }
 
+      // Tags every row from this upload with the same batch id, so the whole
+      // import can be undone in one shot from the UI if something's wrong.
+      const importBatchId = randomUUID();
+
       const rows = [];
       for (const record of records) {
         const r = headerless ? extractPositionalRow(record) : extractRow(record);
@@ -186,6 +190,7 @@ function handlePost(req, res) {
           website:   r.website,
           cnpj:      r.cnpj,
           lead_name: r.lead_name || null,
+          import_batch_id: importBatchId,
         };
 
         const p1 = normalizePhone(r.phone1);
@@ -207,7 +212,7 @@ function handlePost(req, res) {
       fs.unlinkSync(file.filepath);
 
       if (error) return res.status(400).json({ error: error.message });
-      res.json({ inserted: data.length });
+      res.json({ inserted: data.length, import_batch_id: importBatchId });
     } catch (e) {
       res.status(400).json({ error: e.message });
     }
