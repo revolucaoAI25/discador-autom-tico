@@ -33,6 +33,13 @@ function LeadModal({ contact, onClose, onUpdate }) {
   const [notes, setNotes] = useState(contact.notes || '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
+  const [whatsappSends, setWhatsappSends] = useState([]);
+
+  useEffect(() => {
+    fetch(`/api/contacts/${contact.id}`)
+      .then((r) => r.json())
+      .then((d) => setWhatsappSends(d.whatsappSends || []));
+  }, [contact.id]);
 
   async function saveNotes() {
     setSaving(true);
@@ -145,6 +152,34 @@ function LeadModal({ contact, onClose, onUpdate }) {
           </button>
         </div>
 
+        {/* WhatsApp history */}
+        <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+            Histórico de WhatsApp
+          </div>
+          {whatsappSends.length === 0 ? (
+            <p style={{ fontSize: 12, color: 'var(--text-3)' }}>Nenhum disparo enviado ainda.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {whatsappSends.map((s) => (
+                <div key={s.id} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
+                  fontSize: 12, padding: '6px 10px', borderRadius: 6,
+                  background: s.ok ? 'rgba(37,211,102,0.08)' : 'rgba(229,62,62,0.08)',
+                  border: `1px solid ${s.ok ? 'rgba(37,211,102,0.2)' : 'rgba(229,62,62,0.2)'}`,
+                }}>
+                  <span style={{ color: 'var(--text-1)' }}>
+                    {s.ok ? '✓' : '✕'} {s.dispatch_name || 'Disparo'}
+                  </span>
+                  <span style={{ color: 'var(--text-3)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                    {fmtDatetime(s.created_at)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Hibernation warning */}
         {contact.hibernating_until && (
           <div style={{ margin: '0 20px 20px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: 'var(--amber)' }}>
@@ -204,6 +239,11 @@ function Card({ contact, onDragStart, onStatusChange, onCall, onClick }) {
 
       {/* Badges row */}
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+        {contact.last_whatsapp_sent_at && (
+          <span style={{ fontSize: 10, background: 'rgba(37,211,102,0.1)', color: '#25D366', border: '1px solid rgba(37,211,102,0.2)', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>
+            💬 {fmtDatetime(contact.last_whatsapp_sent_at)}
+          </span>
+        )}
         {contact.scheduled_at && (
           <span style={{ fontSize: 10, background: 'rgba(52,211,153,0.1)', color: '#34d399', border: '1px solid rgba(52,211,153,0.2)', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>
             📅 {fmtDatetime(contact.scheduled_at)}

@@ -26,7 +26,14 @@ export default async function handler(req, res) {
       linkedContacts = siblings || [];
     }
 
-    return res.json({ contact, outcomes: outcomes || [], linkedContacts });
+    const { data: whatsappSends } = await supabase
+      .from('whatsapp_sends')
+      .select('*')
+      .eq('contact_id', id)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    return res.json({ contact, outcomes: outcomes || [], linkedContacts, whatsappSends: whatsappSends || [] });
   }
 
   if (req.method === 'PATCH') {

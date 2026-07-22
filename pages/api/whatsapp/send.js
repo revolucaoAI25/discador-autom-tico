@@ -24,6 +24,14 @@ export default async function handler(req, res) {
   const phone = normalizePhone(contact.phone);
   const name  = contact.company || '';
 
+  async function logSend({ ok, statusCode, response }) {
+    await supabase.from('whatsapp_sends').insert({
+      contact_id: contact.id, dispatch_id: dispatch.id, dispatch_name: dispatch.name,
+      ok, status_code: statusCode ?? null, response: (response || '').slice(0, 500),
+    });
+    if (ok) await supabase.from('contacts').update({ last_whatsapp_sent_at: new Date().toISOString() }).eq('id', contact.id);
+  }
+
   try {
     const r = await fetch(dispatch.url, {
       method: 'POST',
@@ -32,10 +40,13 @@ export default async function handler(req, res) {
     });
     if (!r.ok) {
       const txt = await r.text();
+      await logSend({ ok: false, statusCode: r.status, response: txt });
       return res.status(502).json({ error: `Webhook retornou ${r.status}: ${txt}` });
     }
+    await logSend({ ok: true, statusCode: r.status, response: '' });
     return res.json({ ok: true });
   } catch (e) {
+    await logSend({ ok: false, statusCode: null, response: e.message });
     return res.status(502).json({ error: e.message });
   }
 }
