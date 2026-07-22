@@ -25,10 +25,11 @@ export default async function handler(req, res) {
   const name  = contact.company || '';
 
   async function logSend({ ok, statusCode, response }) {
-    await supabase.from('whatsapp_sends').insert({
+    const { error: logError } = await supabase.from('whatsapp_sends').insert({
       contact_id: contact.id, dispatch_id: dispatch.id, dispatch_name: dispatch.name,
       ok, status_code: statusCode ?? null, response: (response || '').slice(0, 500),
     });
+    if (logError) console.error('[whatsapp/send] failed to log to whatsapp_sends:', logError.message);
     if (ok) await supabase.from('contacts').update({ last_whatsapp_sent_at: new Date().toISOString() }).eq('id', contact.id);
   }
 
