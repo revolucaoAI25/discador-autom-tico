@@ -194,7 +194,12 @@ export default async function handler(req, res) {
     const call = await client.calls.create({
       to: contact.phone,
       from: process.env.TWILIO_FROM_NUMBER,
-      url: `${baseUrl}/api/calls/webhook`,
+      // Pass the identity in the URL itself instead of relying on the DB row
+      // existing by the time this webhook fires — the call can be answered
+      // (and the webhook called) before our insert below ever completes,
+      // which was falling back to a stale shared identity nobody's Device is
+      // registered under, silently failing the bridge after a few seconds.
+      url: `${baseUrl}/api/calls/webhook?identity=${encodeURIComponent(identity)}`,
       statusCallback: `${baseUrl}/api/calls/webhook`,
       statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
       statusCallbackMethod: 'POST',

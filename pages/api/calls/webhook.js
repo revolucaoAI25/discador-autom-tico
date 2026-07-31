@@ -22,8 +22,14 @@ export default async function handler(req, res) {
   // Bridge to the SPECIFIC browser session that placed this call — not a
   // fixed shared identity — so a stale/zombie session registered under the
   // same name never gets rung alongside (or instead of) the real one.
+  // Read it straight from the URL dial.js built (works even if this webhook
+  // fires before the DB insert in dial.js has committed); fall back to a DB
+  // lookup, then the shared default, only if it's somehow missing.
   let identity = process.env.TWILIO_CLIENT_IDENTITY || 'agent';
-  if (CallSid) {
+  const queryIdentity = typeof req.query.identity === 'string' ? req.query.identity : '';
+  if (SAFE_IDENTITY_RE.test(queryIdentity)) {
+    identity = queryIdentity;
+  } else if (CallSid) {
     const { data: callRow } = await supabase
       .from('calls').select('agent_identity').eq('twilio_sid', CallSid).single();
     if (callRow?.agent_identity && SAFE_IDENTITY_RE.test(callRow.agent_identity)) {
