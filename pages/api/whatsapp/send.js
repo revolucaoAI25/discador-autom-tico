@@ -1,10 +1,5 @@
 import { supabase } from '../../../lib/supabase';
-
-function normalizePhone(raw) {
-  const digits = raw.replace(/\D/g, '');
-  if (digits.startsWith('55') && digits.length >= 12) return digits;
-  return '55' + digits;
-}
+import { normalizePhone } from '../../../lib/phone';
 
 
 export default async function handler(req, res) {
@@ -26,11 +21,16 @@ export default async function handler(req, res) {
 
   async function logSend({ ok, statusCode, response }) {
     const { error: logError } = await supabase.from('whatsapp_sends').insert({
-      contact_id: contact.id, dispatch_id: dispatch.id, dispatch_name: dispatch.name,
+      contact_id: contact.id, phone, dispatch_id: dispatch.id, dispatch_name: dispatch.name,
       ok, status_code: statusCode ?? null, response: (response || '').slice(0, 500),
     });
     if (logError) console.error('[whatsapp/send] failed to log to whatsapp_sends:', logError.message);
-    if (ok) await supabase.from('contacts').update({ last_whatsapp_sent_at: new Date().toISOString() }).eq('id', contact.id);
+    if (ok) {
+      // Also tag any other contact rows sharing this phone (duplicate imports,
+      // re-uploads) so the badge doesn't disappear just because a newer row
+      // with a different id ended up being the one shown in the Kanban.
+      await supabase.from('contacts').update({ last_whatsapp_sent_at: new Date().toISOString() }).eq('phone', contact.phone);
+    }
   }
 
   try {

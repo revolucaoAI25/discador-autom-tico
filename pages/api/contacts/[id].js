@@ -1,5 +1,6 @@
 import { supabase } from '../../../lib/supabase';
 import { propagateLinkedStatus } from '../../../lib/linkedContacts';
+import { normalizePhone } from '../../../lib/phone';
 
 const VALID_STATUSES = ['pending','no_answer','answered','callback','interested','not_interested','scheduled'];
 
@@ -26,10 +27,12 @@ export default async function handler(req, res) {
       linkedContacts = siblings || [];
     }
 
+    // Matched by phone (not contact_id) so the history survives duplicate
+    // imports that create a new contact row for the same lead.
     const { data: whatsappSends } = await supabase
       .from('whatsapp_sends')
       .select('*')
-      .eq('contact_id', id)
+      .eq('phone', normalizePhone(contact.phone))
       .order('created_at', { ascending: false })
       .limit(20);
 
